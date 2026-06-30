@@ -317,7 +317,7 @@ def register_handlers(bot):
         _send_long_message(bot, message.chat.id, reply, reply_to=message)
 
     # =====================
-    # /setmp [marketplace]
+    # /setmp [marketplace] [fee%]
     # =====================
     @bot.message_handler(commands=['setmp'])
     def handle_setmp(message):
@@ -326,25 +326,44 @@ def register_handlers(bot):
         if len(args) < 2:
             current = database.get_user_settings(chat_id)
             mp = current.get('marketplace', 'shopee')
+            fee = current.get('admin_fee', 6.5)
             mp_info = calculator.MARKETPLACES.get(mp, calculator.MARKETPLACES['shopee'])
             reply = (
                 f"🏪 <b>SETTING MARKETPLACE</b>\n"
                 f"━━━━━━━━━━━━━━━━━━━━━\n\n"
-                f"Marketplace aktif: <b>{mp_info['name']} ({mp_info['fee']}%)</b>\n\n"
-                f"Untuk mengubah, ketik:\n"
+                f"Marketplace aktif: <b>{mp_info['name']}</b>\n"
+                f"Admin fee: <b>{fee}%</b>\n\n"
+                f"Untuk mengubah:\n"
                 f"/setmp shopee\n"
                 f"/setmp tokopedia\n"
                 f"/setmp tiktok\n"
-                f"/setmp lazada\n"
+                f"/setmp lazada\n\n"
+                f"💡 Kamu juga bisa set admin fee custom:\n"
+                f"/setmp shopee 4.5\n"
+                f"  └ Set Shopee dengan fee 4.5%\n"
             )
             bot.reply_to(message, reply, parse_mode="HTML")
             return
 
         mp_key = args[1].lower()
         if mp_key in calculator.MARKETPLACES:
-            fee = calculator.MARKETPLACES[mp_key]['fee']
+            # Cek apakah user memasukkan custom fee
+            default_fee = calculator.MARKETPLACES[mp_key]['fee']
+            if len(args) >= 3:
+                try:
+                    custom_fee = float(args[2].replace('%', ''))
+                    fee = custom_fee
+                except ValueError:
+                    fee = default_fee
+            else:
+                fee = default_fee
+
             database.set_user_marketplace(chat_id, mp_key, fee)
-            bot.reply_to(message, f"✅ Default marketplace disimpan: <b>{calculator.MARKETPLACES[mp_key]['name']} (Fee {fee}%)</b>", parse_mode="HTML")
+            mp_name = calculator.MARKETPLACES[mp_key]['name']
+            if fee != default_fee:
+                bot.reply_to(message, f"✅ Marketplace: <b>{mp_name}</b>\n💰 Admin fee custom: <b>{fee}%</b> (default: {default_fee}%)", parse_mode="HTML")
+            else:
+                bot.reply_to(message, f"✅ Marketplace: <b>{mp_name}</b>\n💰 Admin fee: <b>{fee}%</b>", parse_mode="HTML")
         else:
             bot.reply_to(message, "❌ Marketplace tidak dikenal.\nPilihan: shopee, tokopedia, tiktok, lazada")
 
