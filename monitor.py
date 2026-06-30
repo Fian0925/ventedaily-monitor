@@ -8,11 +8,13 @@ import re
 from datetime import datetime
 import threading
 from flask import Flask
+import telebot
 import config
 
 DATA_FILE = 'data_snapshot.json'
 
 app = Flask(__name__)
+bot = telebot.TeleBot(config.TELEGRAM_BOT_TOKEN)
 
 @app.route('/')
 def home():
@@ -22,19 +24,26 @@ def send_telegram_message(message):
     if config.TELEGRAM_BOT_TOKEN == "GANTI_DENGAN_TOKEN_BOT_KAMU" or config.TELEGRAM_CHAT_ID == "GANTI_DENGAN_CHAT_ID_KAMU":
         print("Pesan (Tidak terkirim, token belum diatur):", message)
         return
-
-    url = f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": config.TELEGRAM_CHAT_ID,
-        "text": message,
-        "parse_mode": "HTML"
-    }
     
     try:
-        response = requests.post(url, json=payload)
-        response.raise_for_status()
-    except requests.exceptions.RequestException as e:
+        bot.send_message(chat_id=config.TELEGRAM_CHAT_ID, text=message, parse_mode="HTML")
+    except Exception as e:
         print(f"Error sending telegram message: {e}")
+
+@bot.message_handler(commands=['status', 'cek'])
+def handle_status(message):
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        mod_time = os.path.getmtime(DATA_FILE)
+        last_check = datetime.fromtimestamp(mod_time).strftime('%Y-%m-%d %H:%M:%S')
+        total_items = len(data)
+        
+        reply = f"🟢 <b>Server Berjalan Normal!</b>\n\n📦 Total Produk Dipantau: <b>{total_items}</b>\n⏱️ Pengecekan Terakhir: <b>{last_check}</b>"
+    else:
+        reply = "🟡 Server berjalan, tetapi belum ada data produk yang diambil (sedang diproses)."
+        
+    bot.reply_to(message, reply, parse_mode="HTML")
 
 def scrape_page(page):
     url = f"{config.BASE_URL}?page={page}"
@@ -166,8 +175,12 @@ def run_scheduler():
 
 if __name__ == "__main__":
     # Start the background job
-    t = threading.Thread(target=run_scheduler)
+    t = threading.Thread(target=run_scheduler, daemon=True)
     t.start()
+    
+    # Start the telegram bot listener
+    t2 = threading.Thread(target=lambda: bot.infinity_polling(), daemon=True)
+    t2.start()
     
     # Start the web server (needed for Render.com to not crash)
     port = int(os.environ.get("PORT", 10000))
