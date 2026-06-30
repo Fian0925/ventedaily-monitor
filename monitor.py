@@ -166,6 +166,16 @@ def run_scheduler():
     print(f"=== Ventedaily Stock Monitor Started ===")
     job()
     schedule.every(config.CHECK_INTERVAL).minutes.do(job)
+    
+    # Laporan mingguan setiap Senin jam 08:00 WIB (01:00 UTC)
+    def weekly_report_job():
+        try:
+            commands.send_weekly_report(bot, config.TELEGRAM_CHAT_ID)
+        except Exception as e:
+            print(f"Error sending weekly report: {e}")
+    
+    schedule.every().monday.at("01:00").do(weekly_report_job)
+    
     while True:
         schedule.run_pending()
         time.sleep(1)
