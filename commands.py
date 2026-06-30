@@ -183,47 +183,38 @@ def register_handlers(bot):
             return
 
         ready = [(k, v) for k, v in results if v.get('stock', '').lower() in ['aman', 'ready']]
-        habis = [(k, v) for k, v in results if v.get('stock', '').lower() == 'habis']
+
+        if not ready:
+            bot.reply_to(message, f"😔 Semua produk \"{query}\" sedang HABIS.")
+            return
 
         reply = f"🔍 <b>Hasil Pencarian: \"{query}\"</b>\n━━━━━━━━━━━━━━━━━━━━━\n\n"
+        reply += f"✅ <b>READY / AMAN ({len(ready)} produk):</b>\n\n"
 
-        if ready:
-            reply += f"✅ <b>READY / AMAN ({len(ready)} produk):</b>\n\n"
+        groups, price_map = _group_products_by_variant(ready)
+        size_order = ['S', 'M', 'L', 'XL', 'XXL', 'XXXL', '-']
 
-            groups, price_map = _group_products_by_variant(ready)
-            size_order = ['S', 'M', 'L', 'XL', 'XXL', 'XXXL', '-']
+        for variant_base in sorted(groups.keys()):
+            colors = groups[variant_base]
+            harga = price_map.get(variant_base, '')
+            reply += f"📦 <b>{variant_base}</b> — {harga}\n"
 
-            for variant_base in sorted(groups.keys()):
-                colors = groups[variant_base]
-                harga = price_map.get(variant_base, '')
-                reply += f"📦 <b>{variant_base}</b> — {harga}\n"
-
-                for warna in sorted(colors.keys()):
-                    sizes = colors[warna]
-                    size_display = []
-                    for sz in size_order:
-                        if sz in sizes:
-                            stock = sizes[sz].lower()
-                            icon = "✅" if stock == "aman" else "📦"
-                            size_display.append(f"{sz}{icon}")
-                    if size_display:
-                        if warna != "-":
-                            reply += f"  • {warna}: {' '.join(size_display)}\n"
-                        else:
-                            reply += f"  • {' '.join(size_display)}\n"
-                reply += "\n"
-        else:
-            reply += f"😔 <b>Semua produk \"{query}\" sedang HABIS.</b>\n\n"
-
-        if habis:
-            reply += f"━━━━━━━━━━━━━━━━━━━━━\n❌ <b>HABIS ({len(habis)} produk):</b>\n"
-            habis_names = [k for k, v in habis[:15]]
-            reply += ", ".join(habis_names)
-            if len(habis) > 15:
-                reply += f"\n<i>... dan {len(habis)-15} lainnya.</i>"
+            for warna in sorted(colors.keys()):
+                sizes = colors[warna]
+                size_display = []
+                for sz in size_order:
+                    if sz in sizes:
+                        stock = sizes[sz].lower()
+                        icon = "✅" if stock == "aman" else "📦"
+                        size_display.append(f"{sz}{icon}")
+                if size_display:
+                    if warna != "-":
+                        reply += f"  • {warna}: {' '.join(size_display)}\n"
+                    else:
+                        reply += f"  • {' '.join(size_display)}\n"
             reply += "\n"
 
-        reply += f"\n📊 Total: {len(results)} | ✅ Ready: {len(ready)} | ❌ Habis: {len(habis)}"
+        reply += f"📊 Total Ready: {len(ready)} produk"
 
         _send_long_message(bot, message.chat.id, reply, reply_to=message)
 
