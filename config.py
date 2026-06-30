@@ -12,3 +12,6 @@ PER_PAGE = 200
 
 # Interval Pengecekan (dalam menit)
 CHECK_INTERVAL = 5
+
+# Biaya tambahan per produk (ditambahkan ke modal)
+BIAYA_TAMBAHAN = 1250

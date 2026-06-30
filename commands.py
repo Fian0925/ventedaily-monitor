@@ -415,7 +415,7 @@ def register_handlers(bot):
         bot.reply_to(message, f"✅ Default markup disimpan: <b>{label}</b>", parse_mode="HTML")
 
     # =====================
-    # /hitung [nama] [profit] — Compare all marketplaces
+    # /hitung [nama] [profit] — Multi-variant + compare marketplaces
     # =====================
     @bot.message_handler(commands=['hitung'])
     def handle_hitung(message):
@@ -429,10 +429,12 @@ def register_handlers(bot):
                 "Format:\n"
                 "/hitung [nama] [profit]\n\n"
                 "Contoh:\n"
+                "/hitung sasmita 20%\n"
                 "/hitung sasmita bro 20%\n"
                 "/hitung ziva 35000\n"
-                "/hitung sasmita bro\n"
-                "  └ pakai markup dari /setmarkup",
+                "/hitung sasmita\n"
+                "  └ pakai markup dari /setmarkup\n\n"
+                f"💡 Biaya tambahan per produk: {calculator.format_price(config.BIAYA_TAMBAHAN)}",
                 parse_mode="HTML"
             )
             return
@@ -468,16 +470,13 @@ def register_handlers(bot):
             bot.reply_to(message, "⚠️ Masukkan nama produk. Contoh: /hitung sasmita bro 20%")
             return
 
-        # Cari produk
+        # Cari produk (prioritas ready/aman)
         matches = [(k, v) for k, v in data.items() if query in k.lower() and v.get('stock', '').lower() in ['aman', 'ready']]
         if not matches:
-            # Coba cari semua (termasuk habis)
             matches = [(k, v) for k, v in data.items() if query in k.lower()]
         if not matches:
             bot.reply_to(message, f"❌ Produk '{query}' tidak ditemukan.")
             return
-
-        target_name, target_data = matches[0]
 
         # Ambil settings user
         settings = database.get_user_settings(chat_id)
@@ -487,53 +486,81 @@ def register_handlers(bot):
             profit_val = float(settings.get('markup_value', 0))
 
         if profit_val == 0:
-            bot.reply_to(
-                message,
-                f"📦 <b>{target_name}</b>\n"
-                f"💰 Modal: {target_data['harga']}\n\n"
+            # Tampilkan daftar varian yang ditemukan saja
+            unique_prices = {}
+            for k, v in matches:
+                harga = v.get('harga', '')
+                base = re.sub(r'\s+SIZE\s+\S+$', '', k, flags=re.IGNORECASE).strip()
+                if harga not in unique_prices:
+                    unique_prices[harga] = base
+
+            reply = f"📦 <b>Ditemukan {len(matches)} produk \"{query}\"</b>\n\n"
+            for harga, base in unique_prices.items():
+                modal = calculator.parse_price(harga) + config.BIAYA_TAMBAHAN
+                reply += f"• {base}\n  Modal: {harga} + {calculator.format_price(config.BIAYA_TAMBAHAN)} = <b>{calculator.format_price(modal)}</b>\n\n"
+            reply += (
                 f"⚠️ Belum ada profit yang diset.\n"
                 f"Gunakan: /hitung {query} 20%\n"
-                f"Atau set default: /setmarkup 20%",
-                parse_mode="HTML"
+                f"Atau set default: /setmarkup 20%"
             )
+            bot.reply_to(message, reply, parse_mode="HTML")
             return
 
         profit_label = f"{profit_val}%" if profit_type == 'percent' else f"Rp {int(profit_val):,}".replace(",", ".")
+        default_mp = settings.get('marketplace', 'shopee')
+        user_fee = float(settings.get('admin_fee', 6.5))
+        mp_name = calculator.MARKETPLACES.get(default_mp, calculator.MARKETPLACES['shopee'])['name']
+        biaya = config.BIAYA_TAMBAHAN
 
-        # Hitung di semua marketplace
-        comparisons = calculator.compare_all_marketplaces(target_data['harga'], profit_val, profit_type)
-
-        if not comparisons:
-            bot.reply_to(message, "❌ Gagal menghitung harga.")
-            return
+        # Group by unique harga (different variants have different prices)
+        variant_prices = {}
+        for k, v in matches:
+            harga = v.get('harga', '')
+            base = re.sub(r'\s+SIZE\s+\S+$', '', k, flags=re.IGNORECASE).strip()
+            if harga not in variant_prices:
+                variant_prices[harga] = base
 
         reply = (
             f"🧮 <b>KALKULASI HARGA JUAL</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"📦 <b>{target_name}</b>\n"
-            f"💰 Modal: {target_data['harga']}\n"
-            f"💵 Target Profit: {profit_label}\n\n"
-            f"🏪 <b>PERBANDINGAN MARKETPLACE:</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🔍 \"{query}\" | Profit: {profit_label}\n"
+            f"🏪 {mp_name} (Fee {user_fee}%)\n\n"
         )
 
-        default_mp = settings.get('marketplace', 'shopee')
-
-        for mp_key in ['shopee', 'tokopedia', 'tiktok', 'lazada']:
-            if mp_key not in comparisons:
+        for harga_str, variant_name in variant_prices.items():
+            calc = calculator.calculate_price(harga_str, profit_val, profit_type, user_fee, biaya)
+            if not calc:
                 continue
-            comp = comparisons[mp_key]
-            marker = " ⬅️" if mp_key == default_mp else ""
+
             reply += (
-                f"\n{'🟠' if mp_key == 'shopee' else '🟢' if mp_key == 'tokopedia' else '⚫' if mp_key == 'tiktok' else '🔵'} "
-                f"<b>{comp['name']}</b> (Fee {comp['fee_pct']}%){marker}\n"
-                f"   🏷️ Jual: <b>{calculator.format_price(comp['harga_jual'])}</b>\n"
-                f"   ✅ Profit: {calculator.format_price(comp['actual_profit'])}\n"
+                f"📦 <b>{variant_name}</b>\n"
+                f"   Modal: {harga_str} + {calculator.format_price(biaya)} = {calculator.format_price(calc['modal'])}\n"
+                f"   🏷️ Harga Jual: <b>{calculator.format_price(calc['harga_jual'])}</b>\n"
+                f"   ✅ Profit: {calculator.format_price(calc['actual_profit'])}\n\n"
             )
 
-        reply += f"\n━━━━━━━━━━━━━━━━━━━━━\n💡 Default MP: {calculator.MARKETPLACES.get(default_mp, {}).get('name', 'Shopee')} (ubah: /setmp)"
+        # Jika hanya 1 varian, tampilkan perbandingan marketplace
+        if len(variant_prices) == 1:
+            harga_str = list(variant_prices.keys())[0]
+            reply += f"🏪 <b>PERBANDINGAN MARKETPLACE:</b>\n━━━━━━━━━━━━━━━━━━━━━\n"
 
-        bot.reply_to(message, reply, parse_mode="HTML")
+            for mp_key in ['shopee', 'tokopedia', 'tiktok', 'lazada']:
+                mp_info = calculator.MARKETPLACES[mp_key]
+                fee = user_fee if mp_key == default_mp else mp_info['fee']
+                comp = calculator.calculate_price(harga_str, profit_val, profit_type, fee, biaya)
+                if not comp:
+                    continue
+                marker = " ⬅️" if mp_key == default_mp else ""
+                icon = '🟠' if mp_key == 'shopee' else '🟢' if mp_key == 'tokopedia' else '⚫' if mp_key == 'tiktok' else '🔵'
+                fee_label = f"{fee}%" if mp_key == default_mp else f"{mp_info['fee']}%"
+                reply += (
+                    f"{icon} {mp_info['name']} ({fee_label}){marker}\n"
+                    f"   Jual: <b>{calculator.format_price(comp['harga_jual'])}</b> | Profit: {calculator.format_price(comp['actual_profit'])}\n"
+                )
+
+        reply += f"\n💡 Biaya tambahan: {calculator.format_price(biaya)}/pcs"
+
+        _send_long_message(bot, message.chat.id, reply, reply_to=message)
 
     # =====================
     # /katalog [nama] — Grouped by brand, with user markup
@@ -582,7 +609,7 @@ def register_handlers(bot):
             # Calculate sell price if markup is set
             price_label = harga_str
             if has_markup:
-                calc = calculator.calculate_price(harga_str, markup_value, markup_type, admin_fee)
+                calc = calculator.calculate_price(harga_str, markup_value, markup_type, admin_fee, config.BIAYA_TAMBAHAN)
                 if calc:
                     price_label = calculator.format_price(calc['harga_jual'])
 

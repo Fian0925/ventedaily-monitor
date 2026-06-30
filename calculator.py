@@ -20,14 +20,17 @@ def format_price(price_int):
     """Mengubah integer menjadi format Rupiah"""
     return f"Rp {price_int:,}".replace(",", ".")
 
-def calculate_price(modal_str, profit_value, profit_type, admin_pct):
+def calculate_price(modal_str, profit_value, profit_type, admin_pct, biaya_tambahan=0):
     """
-    Rumus Harga Jual: (Modal + Profit) / (1 - Admin%)
+    Rumus Harga Jual: (Modal + Biaya + Profit) / (1 - Admin%)
     profit_type: 'percent' atau 'nominal'
     admin_pct: persentase admin (misal 6.5)
+    biaya_tambahan: biaya tambahan per produk (misal 1250)
     """
-    modal = parse_price(modal_str)
-    if modal == 0: return None
+    modal_vente = parse_price(modal_str)
+    if modal_vente == 0: return None
+    
+    modal = modal_vente + biaya_tambahan
     
     if profit_type == 'percent':
         profit_rp = modal * (profit_value / 100)
@@ -51,6 +54,8 @@ def calculate_price(modal_str, profit_value, profit_type, admin_pct):
     actual_profit = net_received - modal
     
     return {
+        "modal_vente": modal_vente,
+        "biaya_tambahan": biaya_tambahan,
         "modal": modal,
         "profit_target": int(profit_rp),
         "harga_jual": harga_jual_rounded,
@@ -59,11 +64,11 @@ def calculate_price(modal_str, profit_value, profit_type, admin_pct):
         "actual_profit": actual_profit
     }
 
-def compare_all_marketplaces(modal_str, profit_value, profit_type):
+def compare_all_marketplaces(modal_str, profit_value, profit_type, biaya_tambahan=0):
     """Menghitung harga jual di semua marketplace untuk dibandingkan"""
     results = {}
     for key, mp in MARKETPLACES.items():
-        res = calculate_price(modal_str, profit_value, profit_type, mp['fee'])
+        res = calculate_price(modal_str, profit_value, profit_type, mp['fee'], biaya_tambahan)
         if res:
             results[key] = {
                 "name": mp['name'],
