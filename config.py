@@ -1,5 +1,5 @@
 # Konfigurasi Telegram Bot
-TELEGRAM_BOT_TOKEN = "8642231143:AAHWkTrZRdQchE_Hrngfmn-hfya2DiSnJ-M"
+TELEGRAM_BOT_TOKEN = "8642231143:AAECE4Q90PV9elNwtwMP-zBlsHfw2sm3EDY"
 TELEGRAM_CHAT_ID = "457147602"
 
 # Konfigurasi Supabase
