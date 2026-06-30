@@ -73,8 +73,8 @@ def scrape_page(page):
             stock = cols[2].get_text(strip=True)
             harga = cols[3].get_text(strip=True)
             
-            if not no.isdigit(): continue
-            data[no] = {"nama": nama, "stock": stock, "harga": harga}
+            if not nama: continue
+            data[nama] = {"no": no, "stock": stock, "harga": harga}
             
     has_next = True
     pagination_text = soup.find(string=re.compile(r'Showing \d+ to \d+ of \d+ entries'))
@@ -106,11 +106,11 @@ def scrape_all():
 
 def compare_data(old_data, new_data):
     changes = []
-    for prod_id, new_item in new_data.items():
-        if prod_id not in old_data:
-            changes.append(f"🟢 <b>PRODUK BARU</b>\nID: {prod_id}\nNama: {new_item['nama']}\nStok: {new_item['stock']}\nHarga: {new_item['harga']}")
+    for prod_nama, new_item in new_data.items():
+        if prod_nama not in old_data:
+            changes.append(f"🟢 <b>PRODUK BARU</b>\nNama: {prod_nama}\nStok: {new_item['stock']}\nHarga: {new_item['harga']}")
         else:
-            old_item = old_data[prod_id]
+            old_item = old_data[prod_nama]
             prod_changes = []
             
             if old_item['stock'] != new_item['stock']:
@@ -124,16 +124,13 @@ def compare_data(old_data, new_data):
             if old_item['harga'] != new_item['harga']:
                 prod_changes.append(f"💰 Harga: {old_item['harga']} ➡️ {new_item['harga']}")
                 
-            if old_item['nama'] != new_item['nama']:
-                prod_changes.append(f"📝 Nama: {old_item['nama']} ➡️ {new_item['nama']}")
-                
             if prod_changes:
-                msg = f"⚠️ <b>PERUBAHAN DATA</b>\nID: {prod_id} | {new_item['nama']}\n" + "\n".join(prod_changes)
+                msg = f"⚠️ <b>PERUBAHAN DATA</b>\n{prod_nama}\n" + "\n".join(prod_changes)
                 changes.append(msg)
                 
-    for prod_id, old_item in old_data.items():
-        if prod_id not in new_data:
-            changes.append(f"🔴 <b>PRODUK DIHAPUS</b>\nID: {prod_id}\nNama: {old_item['nama']}")
+    for prod_nama, old_item in old_data.items():
+        if prod_nama not in new_data:
+            changes.append(f"🔴 <b>PRODUK DIHAPUS</b>\nNama: {prod_nama}")
             
     return changes
 
@@ -145,17 +142,25 @@ def job():
         if os.path.exists(DATA_FILE):
             with open(DATA_FILE, 'r', encoding='utf-8') as f:
                 old_data = json.load(f)
-                
-            changes = compare_data(old_data, new_data)
             
-            if changes:
-                max_msgs = min(len(changes), 10)
-                for msg in changes[:max_msgs]:
-                    send_telegram_message(msg)
-                    time.sleep(1)
-                    
-                if len(changes) > 10:
-                    send_telegram_message(f"ℹ️ <i>Dan {len(changes) - 10} perubahan lainnya tidak ditampilkan...</i>")
+            # Deteksi jika file masih menggunakan format lama (ID berupa angka)
+            if old_data and list(old_data.keys())[0].isdigit():
+                print("Format lama terdeteksi. Membuat ulang snapshot.")
+                old_data = None
+                
+            if old_data:
+                changes = compare_data(old_data, new_data)
+                
+                if changes:
+                    max_msgs = min(len(changes), 10)
+                    for msg in changes[:max_msgs]:
+                        send_telegram_message(msg)
+                        time.sleep(1)
+                        
+                    if len(changes) > 10:
+                        send_telegram_message(f"ℹ️ <i>Dan {len(changes) - 10} perubahan lainnya tidak ditampilkan...</i>")
+            else:
+                send_telegram_message("🤖 <b>Format Data Diperbarui!</b>\nBerhasil mengambil snapshot dengan format baru (berdasarkan Nama Produk). Sistem siap memonitor perubahan.")
         else:
             send_telegram_message("🤖 <b>Bot Monitoring Ventedaily Aktif!</b>\nBerhasil mengambil snapshot awal. Sistem akan mulai memonitor perubahan.")
 
