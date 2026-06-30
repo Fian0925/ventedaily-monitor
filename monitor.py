@@ -10,7 +10,8 @@ import threading
 from flask import Flask
 import telebot
 import config
-
+import database
+import commands
 DATA_FILE = 'data_snapshot.json'
 
 app = Flask(__name__)
@@ -30,20 +31,7 @@ def send_telegram_message(message):
     except Exception as e:
         print(f"Error sending telegram message: {e}")
 
-@bot.message_handler(commands=['status', 'cek'])
-def handle_status(message):
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        mod_time = os.path.getmtime(DATA_FILE)
-        last_check = datetime.fromtimestamp(mod_time).strftime('%Y-%m-%d %H:%M:%S')
-        total_items = len(data)
-        
-        reply = f"🟢 <b>Server Berjalan Normal!</b>\n\n📦 Total Produk Dipantau: <b>{total_items}</b>\n⏱️ Pengecekan Terakhir: <b>{last_check}</b>"
-    else:
-        reply = "🟡 Server berjalan, tetapi belum ada data produk yang diambil (sedang diproses)."
-        
-    bot.reply_to(message, reply, parse_mode="HTML")
+
 
 def scrape_page(page):
     url = f"{config.BASE_URL}?page={page}"
@@ -109,6 +97,7 @@ def compare_data(old_data, new_data):
     for prod_nama, new_item in new_data.items():
         if prod_nama not in old_data:
             changes.append(f"🟢 <b>PRODUK BARU</b>\nNama: {prod_nama}\nStok: {new_item['stock']}\nHarga: {new_item['harga']}")
+            database.log_event(prod_nama, 'new', new_item['stock'], new_item['harga'])
         else:
             old_item = old_data[prod_nama]
             prod_changes = []
@@ -117,8 +106,11 @@ def compare_data(old_data, new_data):
                 old_st = old_item['stock'].lower()
                 new_st = new_item['stock'].lower()
                 icon = "🔄"
-                if "habis" in old_st and ("ready" in new_st or "aman" in new_st): icon = "✅"
-                elif ("ready" in old_st or "aman" in old_st) and "habis" in new_st: icon = "❌"
+                if "habis" in old_st and ("ready" in new_st or "aman" in new_st): 
+                    icon = "✅"
+                    database.log_event(prod_nama, 'restock', new_item['stock'], new_item['harga'])
+                elif ("ready" in old_st or "aman" in old_st) and "habis" in new_st: 
+                    icon = "❌"
                 prod_changes.append(f"{icon} Stok: {old_item['stock']} ➡️ <b>{new_item['stock']}</b>")
                 
             if old_item['harga'] != new_item['harga']:
@@ -179,6 +171,8 @@ def run_scheduler():
         time.sleep(1)
 
 if __name__ == "__main__":
+    commands.register_handlers(bot)
+    
     # Start the background job
     t = threading.Thread(target=run_scheduler, daemon=True)
     t.start()
