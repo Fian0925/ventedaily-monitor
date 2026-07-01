@@ -21,15 +21,19 @@ bot = telebot.TeleBot(config.TELEGRAM_BOT_TOKEN)
 def home():
     return "Bot Monitoring Ventedaily Sedang Berjalan 24/7!"
 
-def send_telegram_message(message):
-    if config.TELEGRAM_BOT_TOKEN == "GANTI_DENGAN_TOKEN_BOT_KAMU" or config.TELEGRAM_CHAT_ID == "GANTI_DENGAN_CHAT_ID_KAMU":
-        print("Pesan (Tidak terkirim, token belum diatur):", message)
-        return
-    
+def send_admin_message(message):
     try:
         bot.send_message(chat_id=config.TELEGRAM_CHAT_ID, text=message, parse_mode="HTML")
     except Exception as e:
-        print(f"Error sending telegram message: {e}")
+        print(f"Error sending admin message: {e}")
+
+def broadcast_telegram_message(message):
+    users = database.get_active_users()
+    for u in users:
+        try:
+            bot.send_message(chat_id=u['chat_id'], text=message, parse_mode="HTML")
+        except Exception as e:
+            print(f"Error sending to {u.get('chat_id')}: {e}")
 
 
 
@@ -148,35 +152,79 @@ def job():
                 if changes:
                     max_msgs = min(len(changes), 10)
                     for msg in changes[:max_msgs]:
-                        send_telegram_message(msg)
+                        broadcast_telegram_message(msg)
                         time.sleep(1)
                         
                     if len(changes) > 10:
-                        send_telegram_message(f"ℹ️ <i>Dan {len(changes) - 10} perubahan lainnya tidak ditampilkan...</i>")
+                        broadcast_telegram_message(f"ℹ️ <i>Dan {len(changes) - 10} perubahan lainnya tidak ditampilkan...</i>")
             else:
-                send_telegram_message("🤖 <b>Format Data Diperbarui!</b>\nBerhasil mengambil snapshot dengan format baru (berdasarkan Nama Produk). Sistem siap memonitor perubahan.")
+                send_admin_message("🤖 <b>Format Data Diperbarui!</b>\nBerhasil mengambil snapshot dengan format baru (berdasarkan Nama Produk). Sistem siap memonitor perubahan.")
         else:
-            send_telegram_message("🤖 <b>Bot Monitoring Ventedaily Aktif!</b>\nBerhasil mengambil snapshot awal. Sistem akan mulai memonitor perubahan.")
-
+            send_admin_message("🤖 <b>Bot Monitoring Ventedaily Aktif!</b>\nBerhasil mengambil snapshot awal. Sistem akan mulai memonitor perubahan.")
+            
         with open(DATA_FILE, 'w', encoding='utf-8') as f:
             json.dump(new_data, f, indent=4, ensure_ascii=False)
             
     except Exception as e:
         print(f"Error during job execution: {e}")
 
+def check_expirations_job():
+    users = database.get_all_users()
+    from datetime import datetime, timezone, timedelta
+    now = datetime.now(timezone.utc)
+    for u in users:
+        if u.get('role') == 'admin': continue
+        
+        v_str = u.get('valid_until', '2000-01-01T00:00:00Z')
+        try:
+            valid_until = datetime.fromisoformat(v_str.replace('Z', '+00:00'))
+        except:
+            continue
+            
+        time_left = valid_until - now
+        
+        if timedelta(hours=0) < time_left <= timedelta(hours=1):
+            if u.get('reminder_sent') != '1_hour':
+                try:
+                    bot.send_message(
+                        u['chat_id'], 
+                        "⏰ <b>SISA WAKTU 1 JAM!</b>\n\nMasa aktif langganan Ventedaily Monitor kamu akan habis dalam waktu kurang dari 1 jam.\n👉 Segera hubungi Admin untuk perpanjangan agar tidak ketinggalan info restock!", 
+                        parse_mode="HTML"
+                    )
+                    database.update_subscription(u['chat_id'], u.get('plan_type','pro'), v_str, "1_hour")
+                except: pass
+        elif timedelta(hours=1) < time_left <= timedelta(hours=24):
+            if u.get('reminder_sent') not in ['1_day', '1_hour']:
+                try:
+                    bot.send_message(
+                        u['chat_id'], 
+                        "⏰ <b>PENGINGAT (H-1)</b>\n\nMasa aktif langganan Ventedaily Monitor kamu akan habis besok.\n👉 Hubungi Admin untuk perpanjangan paket kamu.", 
+                        parse_mode="HTML"
+                    )
+                    database.update_subscription(u['chat_id'], u.get('plan_type','pro'), v_str, "1_day")
+                except: pass
+
 def run_scheduler():
     print(f"=== Ventedaily Stock Monitor Started ===")
     job()
     schedule.every(config.CHECK_INTERVAL).minutes.do(job)
+    schedule.every().hour.do(check_expirations_job)
     
-    # Laporan mingguan setiap Senin jam 08:00 WIB (01:00 UTC)
+    # Jadwalkan laporan mingguan tiap Senin jam 08:00
     def weekly_report_job():
         try:
-            commands.send_weekly_report(bot, config.TELEGRAM_CHAT_ID)
+            from commands import send_weekly_report
+            active_users = database.get_active_users()
+            for u in active_users:
+                try:
+                    send_weekly_report(bot, u['chat_id'])
+                    time.sleep(1)
+                except Exception as inner_e:
+                    print(f"Error sending weekly report to {u['chat_id']}: {inner_e}")
         except Exception as e:
             print(f"Error sending weekly report: {e}")
     
-    schedule.every().monday.at("01:00").do(weekly_report_job)
+    schedule.every().monday.at("08:00").do(weekly_report_job)
     
     while True:
         schedule.run_pending()

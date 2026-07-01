@@ -106,6 +106,42 @@ def _group_products_by_variant(products):
     return groups, price_map
 
 
+def _check_subscription(bot, message):
+    settings = database.get_user_settings(message.chat.id)
+    if settings.get('role') == 'admin':
+        return True
+        
+    valid_until_str = settings.get('valid_until', '2000-01-01T00:00:00Z')
+    try:
+        from datetime import datetime, timezone
+        valid_until = datetime.fromisoformat(valid_until_str.replace('Z', '+00:00'))
+    except Exception:
+        from datetime import datetime, timezone
+        valid_until = datetime(2000, 1, 1, tzinfo=timezone.utc)
+        
+    now = datetime.now(timezone.utc)
+    if now > valid_until:
+        bot.reply_to(
+            message, 
+            "⚠️ <b>Akses Ditolak / Masa Aktif Habis!</b>\n\n"
+            "Maaf, kamu belum memiliki akses atau masa aktif langganan sudah habis.\n\n"
+            "🔥 <b>Langganan sekarang untuk menikmati:</b>\n"
+            "✅ Notifikasi otomatis (Restock & Produk Baru) 24/7\n"
+            "✅ Kalkulator instan harga modal & jual berbagai Marketplace\n"
+            "✅ Generate katalog otomatis siap sebar\n\n"
+            "👉 Hubungi Admin untuk pendaftaran atau perpanjangan masa aktif.", 
+            parse_mode="HTML"
+        )
+        return False
+    return True
+
+def _check_admin(bot, message):
+    settings = database.get_user_settings(message.chat.id)
+    if settings.get('role') != 'admin':
+        bot.reply_to(message, "❌ Akses ditolak. Perintah ini hanya untuk Admin.")
+        return False
+    return True
+
 def register_handlers(bot):
 
     # =====================
@@ -113,37 +149,75 @@ def register_handlers(bot):
     # =====================
     @bot.message_handler(commands=['start', 'help'])
     def send_welcome(message):
-        help_text = (
-            "🤖 <b>VENTEDAILY STOCK MONITOR v2.0</b>\n"
-            "━━━━━━━━━━━━━━━━━━━━━\n\n"
-            "📖 <b>DAFTAR PERINTAH:</b>\n\n"
-            "🔍 /cari [nama]\n"
-            "   └ Cari produk, grouped by varian & size\n\n"
-            "🆕 /baru atau /baru [hari]\n"
-            "   └ Lihat produk baru (default: hari ini)\n\n"
-            "🔄 /restock atau /restock [hari]\n"
-            "   └ Lihat produk restock (default: hari ini)\n\n"
-            "🧮 /hitung [nama] [profit]\n"
-            "   └ Kalkulator harga jual semua marketplace\n"
-            "   └ Contoh: /hitung ziva 20% atau /hitung ziva 30000\n\n"
-            "🏪 /setmp [marketplace]\n"
-            "   └ Set default marketplace\n"
-            "   └ Pilihan: shopee, tokopedia, tiktok, lazada\n\n"
-            "💰 /setmarkup [nilai]\n"
-            "   └ Set default profit margin\n"
-            "   └ Contoh: /setmarkup 20% atau /setmarkup 30000\n\n"
-            "📋 /katalog [nama]\n"
-            "   └ Generate katalog siap copas ke WA\n\n"
-            "📝 /perubahan [filter] [hari] [semua]\n"
-            "   └ Laporan harian perubahan data\n"
-            "   └ Filter: habis, restock, harga, baru\n"
-            "   └ Contoh: /perubahan habis 7\n\n"
-            "📊 /laporan\n"
-            "   └ Laporan mingguan produk baru & restock\n\n"
-            "🟢 /status — Cek status server\n"
-            "❓ /help — Tampilkan menu ini\n"
-        )
-        bot.reply_to(message, help_text, parse_mode="HTML")
+        settings = database.get_user_settings(message.chat.id)
+        
+        valid_until_str = settings.get('valid_until', '2000-01-01T00:00:00Z')
+        try:
+            from datetime import datetime, timezone
+            valid_until = datetime.fromisoformat(valid_until_str.replace('Z', '+00:00'))
+        except:
+            from datetime import datetime, timezone
+            valid_until = datetime(2000, 1, 1, tzinfo=timezone.utc)
+            
+        now = datetime.now(timezone.utc)
+        is_active = now <= valid_until or settings.get('role') == 'admin'
+        
+        if is_active:
+            help_text = (
+                "🤖 <b>VENTEDAILY STOCK MONITOR v2.0</b>\n"
+                "━━━━━━━━━━━━━━━━━━━━━\n\n"
+                "📖 <b>DAFTAR PERINTAH:</b>\n\n"
+                "🔍 /cari [nama]\n"
+                "   └ Cari produk, grouped by varian & size\n\n"
+                "🆕 /baru atau /baru [hari]\n"
+                "   └ Lihat produk baru (default: hari ini)\n\n"
+                "🔄 /restock atau /restock [hari]\n"
+                "   └ Lihat produk restock (default: hari ini)\n\n"
+                "🧮 /hitung [nama] [profit]\n"
+                "   └ Kalkulator harga jual semua marketplace\n"
+                "   └ Contoh: /hitung ziva 20% atau /hitung ziva 30000\n\n"
+                "🏪 /setmp [marketplace]\n"
+                "   └ Set default marketplace\n"
+                "   └ Pilihan: shopee, tokopedia, tiktok, lazada\n\n"
+                "💰 /setmarkup [nilai]\n"
+                "   └ Set default profit margin\n"
+                "   └ Contoh: /setmarkup 20% atau /setmarkup 30000\n\n"
+                "📋 /katalog [nama]\n"
+                "   └ Generate katalog siap copas ke WA\n\n"
+                "📝 /perubahan [filter] [hari] [semua]\n"
+                "   └ Laporan harian perubahan data\n"
+                "   └ Filter: habis, restock, harga, baru\n"
+                "   └ Contoh: /perubahan habis 7\n\n"
+                "📊 /laporan\n"
+                "   └ Laporan mingguan produk baru & restock\n\n"
+                "🟢 /status — Cek status server\n"
+                "❓ /help — Tampilkan menu ini\n"
+            )
+            if settings.get('role') == 'admin':
+                help_text += (
+                    "\n🛠 <b>ADMIN COMMANDS:</b>\n"
+                    "/adduser [chat_id] [hari]\n"
+                    "/extend [chat_id] [hari]\n"
+                    "/suspend [chat_id]\n"
+                    "/check [chat_id]\n"
+                    "/users\n"
+                    "/broadcast [pesan]\n"
+                )
+            bot.reply_to(message, help_text, parse_mode="HTML")
+        else:
+            bot.reply_to(
+                message, 
+                "👋 <b>Halo! Selamat datang di Ventedaily Monitor Bot.</b>\n\n"
+                "Bot ini adalah asisten pribadi untuk memaksimalkan jualanmu!\n\n"
+                "🔥 <b>Fitur Unggulan:</b>\n"
+                "✅ <b>Notifikasi Restock Tercepat:</b> Jangan sampai kehabisan barang incaran! Bot otomatis ngasih tau kamu 24/7 saat barang habis jadi ready.\n"
+                "✅ <b>Kalkulator Instan:</b> Mau tau harga jual di Shopee/Tokopedia biar tetep untung? Cukup ketik nama produk, bot otomatis hitungin Modal + Admin Fee + Target Profit!\n"
+                "✅ <b>Katalog Otomatis:</b> Tinggal ketik /katalog, langsung keluar list barang lengkap dengan sisa size-nya. Siap copas ke WA customer.\n\n"
+                f"⚠️ <b>Status Akun: Belum Aktif</b>\n"
+                f"ID Telegram kamu: <code>{message.chat.id}</code>\n\n"
+                "👉 <b>Tertarik mencoba?</b> Hubungi Admin sekarang untuk aktivasi akun dan dapatkan keuntungannya!", 
+                parse_mode="HTML"
+            )
 
     # =====================
     # /status
@@ -170,6 +244,7 @@ def register_handlers(bot):
     # =====================
     @bot.message_handler(commands=['cari'])
     def handle_cari(message):
+        if not _check_subscription(bot, message): return
         query = message.text.replace('/cari', '').strip().lower()
         if not query:
             bot.reply_to(message, "⚠️ Gunakan format: /cari [nama produk]\nContoh: /cari sasmita")
@@ -227,6 +302,7 @@ def register_handlers(bot):
     # =====================
     @bot.message_handler(commands=['baru'])
     def handle_baru(message):
+        if not _check_subscription(bot, message): return
         args = message.text.split()
         days = 1
         if len(args) > 1 and args[1].isdigit():
@@ -276,6 +352,7 @@ def register_handlers(bot):
     # =====================
     @bot.message_handler(commands=['restock'])
     def handle_restock(message):
+        if not _check_subscription(bot, message): return
         args = message.text.split()
         days = 1
         if len(args) > 1 and args[1].isdigit():
@@ -325,6 +402,7 @@ def register_handlers(bot):
     # =====================
     @bot.message_handler(commands=['setmp'])
     def handle_setmp(message):
+        if not _check_subscription(bot, message): return
         chat_id = message.chat.id
         args = message.text.split()
         if len(args) < 2:
@@ -376,6 +454,7 @@ def register_handlers(bot):
     # =====================
     @bot.message_handler(commands=['setmarkup'])
     def handle_setmarkup(message):
+        if not _check_subscription(bot, message): return
         chat_id = message.chat.id
         args = message.text.split()
         if len(args) < 2:
@@ -423,6 +502,7 @@ def register_handlers(bot):
     # =====================
     @bot.message_handler(commands=['hitung'])
     def handle_hitung(message):
+        if not _check_subscription(bot, message): return
         chat_id = message.chat.id
         args = message.text.split()
 
@@ -571,6 +651,7 @@ def register_handlers(bot):
     # =====================
     @bot.message_handler(commands=['katalog'])
     def handle_katalog(message):
+        if not _check_subscription(bot, message): return
         chat_id = message.chat.id
         query = message.text.replace('/katalog', '').strip().lower()
 
@@ -643,6 +724,7 @@ def register_handlers(bot):
     # =====================
     @bot.message_handler(commands=['perubahan'])
     def handle_perubahan(message):
+        if not _check_subscription(bot, message): return
         args = message.text.lower().split()
         
         filter_type = None
@@ -787,6 +869,7 @@ def register_handlers(bot):
     # =====================
     @bot.message_handler(commands=['laporan'])
     def handle_laporan(message):
+        if not _check_subscription(bot, message): return
         _generate_report(bot, message.chat.id, reply_to=message)
 
 
@@ -850,6 +933,134 @@ def _generate_report(bot, chat_id, reply_to=None):
     reply += f"\n━━━━━━━━━━━━━━━━━━━━━\n💡 Laporan otomatis dikirim setiap Senin 08:00 WIB"
 
     _send_long_message(bot, chat_id, reply, reply_to=reply_to)
+
+    # =====================
+    # ADMIN COMMANDS
+    # =====================
+    @bot.message_handler(commands=['adduser'])
+    def handle_adduser(message):
+        if not _check_admin(bot, message): return
+        args = message.text.split()
+        if len(args) < 3:
+            bot.reply_to(message, "⚠️ Format: /adduser [chat_id] [hari]\nContoh: /adduser 12345 30")
+            return
+        target_id = args[1]
+        try:
+            days = int(args[2])
+            from datetime import datetime, timedelta, timezone
+            valid_until = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
+            if database.update_subscription(target_id, 'pro', valid_until, ""):
+                bot.reply_to(message, f"✅ User {target_id} berhasil diaktifkan selama {days} hari.")
+                bot.send_message(target_id, f"🎉 <b>Langganan Aktif!</b>\n\nMasa aktif kamu telah ditambahkan selama {days} hari.\nSilakan gunakan perintah seperti /cari atau /hitung.", parse_mode="HTML")
+            else:
+                bot.reply_to(message, "❌ Gagal update database.")
+        except Exception as e:
+            bot.reply_to(message, f"❌ Error: {e}")
+
+    @bot.message_handler(commands=['extend'])
+    def handle_extend(message):
+        if not _check_admin(bot, message): return
+        args = message.text.split()
+        if len(args) < 3:
+            bot.reply_to(message, "⚠️ Format: /extend [chat_id] [hari]")
+            return
+        target_id = args[1]
+        try:
+            days = int(args[2])
+            settings = database.get_user_settings(target_id)
+            valid_until_str = settings.get('valid_until', '2000-01-01T00:00:00Z')
+            from datetime import datetime, timedelta, timezone
+            try:
+                current_valid = datetime.fromisoformat(valid_until_str.replace('Z', '+00:00'))
+            except:
+                current_valid = datetime.now(timezone.utc)
+                
+            if current_valid < datetime.now(timezone.utc):
+                current_valid = datetime.now(timezone.utc)
+                
+            new_valid = (current_valid + timedelta(days=days)).isoformat()
+            if database.update_subscription(target_id, settings.get('plan_type', 'pro'), new_valid, ""):
+                bot.reply_to(message, f"✅ Masa aktif user {target_id} diperpanjang {days} hari.")
+                bot.send_message(target_id, f"🎉 <b>Perpanjangan Berhasil!</b>\n\nMasa aktif kamu telah ditambah {days} hari.", parse_mode="HTML")
+            else:
+                bot.reply_to(message, "❌ Gagal update database.")
+        except Exception as e:
+            bot.reply_to(message, f"❌ Error: {e}")
+
+    @bot.message_handler(commands=['suspend'])
+    def handle_suspend(message):
+        if not _check_admin(bot, message): return
+        args = message.text.split()
+        if len(args) < 2:
+            bot.reply_to(message, "⚠️ Format: /suspend [chat_id]")
+            return
+        target_id = args[1]
+        if database.update_subscription(target_id, 'none', '2000-01-01T00:00:00Z', ""):
+            bot.reply_to(message, f"✅ User {target_id} berhasil di-suspend.")
+            try:
+                bot.send_message(target_id, "⚠️ Masa aktif kamu telah diberhentikan oleh Admin.")
+            except:
+                pass
+        else:
+            bot.reply_to(message, "❌ Gagal update database.")
+
+    @bot.message_handler(commands=['check'])
+    def handle_check(message):
+        if not _check_admin(bot, message): return
+        args = message.text.split()
+        if len(args) < 2:
+            bot.reply_to(message, "⚠️ Format: /check [chat_id]")
+            return
+        target_id = args[1]
+        settings = database.get_user_settings(target_id)
+        valid_until_str = settings.get('valid_until', '2000-01-01T00:00:00Z')
+        bot.reply_to(message, f"User {target_id}\nPlan: {settings.get('plan_type')}\nValid Until: {valid_until_str}")
+
+    @bot.message_handler(commands=['users'])
+    def handle_users(message):
+        if not _check_admin(bot, message): return
+        users = database.get_all_users()
+        if not users:
+            bot.reply_to(message, "Tidak ada user.")
+            return
+        
+        reply = "👥 <b>DAFTAR USER</b>\n━━━━━━━━━━━━━━━━━━━━━\n"
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        
+        active = 0
+        for u in users:
+            v_str = u.get('valid_until', '2000-01-01T00:00:00Z')
+            try:
+                v = datetime.fromisoformat(v_str.replace('Z', '+00:00'))
+            except:
+                v = datetime(2000, 1, 1, tzinfo=timezone.utc)
+                
+            status = "🟢" if v > now else "🔴"
+            if v > now: active += 1
+            reply += f"{status} <code>{u.get('chat_id')}</code> ({u.get('plan_type', 'none')})\n"
+            
+        reply += f"\nTotal: {len(users)} | Aktif: {active}"
+        bot.reply_to(message, reply, parse_mode="HTML")
+
+    @bot.message_handler(commands=['broadcast'])
+    def handle_broadcast(message):
+        if not _check_admin(bot, message): return
+        text = message.text.replace('/broadcast', '').strip()
+        if not text:
+            bot.reply_to(message, "⚠️ Format: /broadcast [pesan]")
+            return
+        
+        users = database.get_active_users()
+        sent = 0
+        for u in users:
+            try:
+                bot.send_message(u['chat_id'], f"📢 <b>PENGUMUMAN DARI ADMIN</b>\n\n{text}", parse_mode="HTML")
+                sent += 1
+            except:
+                pass
+        bot.reply_to(message, f"✅ Broadcast terkirim ke {sent} user aktif.")
+
 
 
 def send_weekly_report(bot, chat_id):

@@ -49,23 +49,37 @@ def get_user_settings(chat_id):
             return data[0]
         
         # Create default settings if not exists
+        # Role admin for the creator, others are user
+        from config import TELEGRAM_CHAT_ID
+        role = 'admin' if str(chat_id) == str(TELEGRAM_CHAT_ID) else 'user'
+        
         default_settings = {
             "chat_id": str(chat_id),
             "marketplace": "shopee",
             "admin_fee": 6.5,
             "markup_type": "percent",
-            "markup_value": 0.0
+            "markup_value": 0.0,
+            "role": role,
+            "plan_type": "none",
+            "valid_until": "2000-01-01T00:00:00Z", # Expired by default
+            "reminder_sent": ""
         }
         requests.post(f"{SUPABASE_URL}/user_settings", json=default_settings, headers=headers)
         return default_settings
     except Exception as e:
         print(f"Error getting/creating user settings: {e}")
+        from config import TELEGRAM_CHAT_ID
+        role = 'admin' if str(chat_id) == str(TELEGRAM_CHAT_ID) else 'user'
         return {
             "chat_id": str(chat_id),
             "marketplace": "shopee",
             "admin_fee": 6.5,
             "markup_type": "percent",
-            "markup_value": 0.0
+            "markup_value": 0.0,
+            "role": role,
+            "plan_type": "none",
+            "valid_until": "2000-01-01T00:00:00Z",
+            "reminder_sent": ""
         }
 
 def set_user_marketplace(chat_id, marketplace, fee):
@@ -95,3 +109,42 @@ def set_user_markup(chat_id, markup_type, value):
         res.raise_for_status()
     except Exception as e:
         print(f"Error setting markup: {e}")
+
+def get_all_users():
+    url = f"{SUPABASE_URL}/user_settings"
+    try:
+        res = requests.get(url, headers=headers)
+        res.raise_for_status()
+        return res.json()
+    except Exception as e:
+        print(f"Error getting all users: {e}")
+        return []
+
+def get_active_users():
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+    url = f"{SUPABASE_URL}/user_settings?valid_until=gt.{now}"
+    try:
+        res = requests.get(url, headers=headers)
+        res.raise_for_status()
+        return res.json()
+    except Exception as e:
+        print(f"Error getting active users: {e}")
+        return []
+
+def update_subscription(chat_id, plan_type, valid_until, reminder_sent=""):
+    payload = {
+        "chat_id": str(chat_id),
+        "plan_type": plan_type,
+        "valid_until": valid_until,
+        "reminder_sent": reminder_sent
+    }
+    headers_upsert = headers.copy()
+    headers_upsert["Prefer"] = "resolution=merge-duplicates"
+    try:
+        res = requests.post(f"{SUPABASE_URL}/user_settings", json=payload, headers=headers_upsert)
+        res.raise_for_status()
+        return True
+    except Exception as e:
+        print(f"Error updating subscription: {e}")
+        return False
