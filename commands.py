@@ -1061,7 +1061,16 @@ def _generate_report(bot, chat_id, reply_to=None):
                 pass
         bot.reply_to(message, f"✅ Broadcast terkirim ke {sent} user aktif.")
 
-
+    # =====================
+    # FALLBACK HANDLER
+    # =====================
+    @bot.message_handler(func=lambda message: True)
+    def handle_unknown(message):
+        bot.reply_to(
+            message, 
+            "🤔 Maaf, saya tidak mengerti maksud kamu.\n\n"
+            "Ketik /help untuk melihat daftar perintah yang tersedia."
+        )
 
 def send_weekly_report(bot, chat_id):
     """Dipanggil oleh scheduler di monitor.py setiap Senin jam 08:00"""
