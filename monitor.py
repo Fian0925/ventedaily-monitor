@@ -111,10 +111,12 @@ def compare_data(old_data, new_data):
                     database.log_event(prod_nama, 'restock', new_item['stock'], new_item['harga'])
                 elif ("ready" in old_st or "aman" in old_st) and "habis" in new_st: 
                     icon = "❌"
+                    database.log_event(prod_nama, 'habis', old_item['stock'], new_item['harga'])
                 prod_changes.append(f"{icon} Stok: {old_item['stock']} ➡️ <b>{new_item['stock']}</b>")
                 
             if old_item['harga'] != new_item['harga']:
                 prod_changes.append(f"💰 Harga: {old_item['harga']} ➡️ {new_item['harga']}")
+                database.log_event(prod_nama, 'price_change', old_item['harga'], new_item['harga'])
                 
             if prod_changes:
                 msg = f"⚠️ <b>PERUBAHAN DATA</b>\n{prod_nama}\n" + "\n".join(prod_changes)

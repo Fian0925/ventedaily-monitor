@@ -134,6 +134,10 @@ def register_handlers(bot):
             "   └ Contoh: /setmarkup 20% atau /setmarkup 30000\n\n"
             "📋 /katalog [nama]\n"
             "   └ Generate katalog siap copas ke WA\n\n"
+            "📝 /perubahan [filter] [hari] [semua]\n"
+            "   └ Laporan harian perubahan data\n"
+            "   └ Filter: habis, restock, harga, baru\n"
+            "   └ Contoh: /perubahan habis 7\n\n"
             "📊 /laporan\n"
             "   └ Laporan mingguan produk baru & restock\n\n"
             "🟢 /status — Cek status server\n"
@@ -631,6 +635,150 @@ def register_handlers(bot):
             reply += f"💰 Harga jual untuk {mp_name}\n"
         reply += f"✅ = Aman | 📦 = Ready\n"
         reply += f"\n📱 Minat? Chat admin ya!"
+
+        _send_long_message(bot, message.chat.id, reply, reply_to=message)
+
+    # =====================
+    # /perubahan [filter] [hari] [semua]
+    # =====================
+    @bot.message_handler(commands=['perubahan'])
+    def handle_perubahan(message):
+        args = message.text.lower().split()
+        
+        filter_type = None
+        days = 1
+        show_all = False
+        
+        # Parse arguments
+        for arg in args[1:]:
+            if arg in ['habis', 'restock', 'harga', 'baru']:
+                filter_type = arg
+                if filter_type == 'harga': filter_type = 'price_change'
+                if filter_type == 'baru': filter_type = 'new'
+            elif arg.isdigit():
+                days = int(arg)
+            elif arg == 'semua':
+                show_all = True
+                
+        events = database.get_events(filter_type, days)
+        
+        if not events:
+            filter_name = ""
+            if filter_type == 'habis': filter_name = "jadi HABIS"
+            elif filter_type == 'restock': filter_name = "RESTOCK"
+            elif filter_type == 'price_change': filter_name = "perubahan HARGA"
+            elif filter_type == 'new': filter_name = "PRODUK BARU"
+            
+            bot.reply_to(message, f"📭 Belum ada data {filter_name} dalam {days} hari terakhir.")
+            return
+
+        # Group by day and by event type
+        by_day = defaultdict(lambda: defaultdict(list))
+        total_events = defaultdict(int)
+        
+        for ev in events:
+            dt_str = ev.get('detected_at', '')
+            try:
+                dt = datetime.fromisoformat(dt_str.replace('Z', '+00:00'))
+                day_key = dt.strftime('%d %b %Y')
+                time_str = dt.strftime('%H:%M')
+            except Exception:
+                day_key = 'Unknown'
+                time_str = ''
+                
+            ev_type = ev.get('event_type')
+            by_day[day_key][ev_type].append((ev, time_str))
+            total_events[ev_type] += 1
+
+        is_specific = filter_type is not None
+        title_map = {
+            'habis': ('❌', 'JADI HABIS'),
+            'restock': ('✅', 'RESTOCK'),
+            'price_change': ('💰', 'PERUBAHAN HARGA'),
+            'new': ('🆕', 'PRODUK BARU')
+        }
+        
+        if is_specific:
+            icon, title = title_map.get(filter_type, ('📋', 'PERUBAHAN'))
+            reply = f"📋 <b>PERUBAHAN: {title} ({days} HARI)</b>\n━━━━━━━━━━━━━━━━━━━━━\n\n"
+        else:
+            reply = f"📋 <b>LAPORAN PERUBAHAN ({days} HARI)</b>\n━━━━━━━━━━━━━━━━━━━━━\n\n"
+
+        for day in sorted(by_day.keys(), reverse=True):
+            day_data = by_day[day]
+            
+            if is_specific:
+                items = day_data.get(filter_type, [])
+                if not items: continue
+                reply += f"📅 <b>{day} — {icon} {len(items)} produk</b>\n"
+                
+                for idx, (ev, time_str) in enumerate(items):
+                    if not show_all and idx >= 30:
+                        reply += f"  <i>... dan {len(items) - 30} lainnya.</i>\n"
+                        break
+                    time_label = f" ({time_str})" if time_str else ""
+                    if filter_type == 'habis':
+                        reply += f"  {idx+1}. {ev['nama']}{time_label}\n     {ev.get('stock','-')} ➡️ Habis | {ev.get('harga','-')}\n"
+                    elif filter_type == 'restock':
+                        reply += f"  {idx+1}. {ev['nama']}{time_label}\n     Habis ➡️ {ev.get('stock','-')} | {ev.get('harga','-')}\n"
+                    elif filter_type == 'price_change':
+                        # Untuk price change, kita tampilkan old dan new, tapi karena schema kita sederhana:
+                        # stock = old harga, harga = new harga di log kita (cek monitor.py log_event('price_change', old, new))
+                        reply += f"  {idx+1}. {ev['nama']}{time_label}\n     {ev.get('stock','-')} ➡️ {ev.get('harga','-')}\n"
+                    elif filter_type == 'new':
+                        reply += f"  {idx+1}. {ev['nama']}{time_label}\n     Stok: {ev.get('stock','-')} | {ev.get('harga','-')}\n"
+                reply += "\n"
+            else:
+                reply += f"📅 <b>{day}</b>\n"
+                
+                # Show summary for the day
+                day_summary = []
+                for ev_t, (icon, _) in title_map.items():
+                    cnt = len(day_data.get(ev_t, []))
+                    if ev_t == 'habis': day_summary.append(f"{icon} {cnt} habis")
+                    elif ev_t == 'restock': day_summary.append(f"{icon} {cnt} restock")
+                    elif ev_t == 'price_change': day_summary.append(f"{icon} {cnt} harga")
+                    elif ev_t == 'new': day_summary.append(f"{icon} {cnt} baru")
+                reply += "  " + " | ".join(day_summary) + "\n\n"
+                
+                # Show details if days == 1
+                if days == 1:
+                    for ev_t, (icon, title) in title_map.items():
+                        items = day_data.get(ev_t, [])
+                        if not items: continue
+                        reply += f"{icon} <b>{title} ({len(items)}):</b>\n"
+                        for idx, (ev, time_str) in enumerate(items):
+                            if not show_all and idx >= 10:
+                                reply += f"  <i>... dan {len(items) - 10} lainnya.</i>\n"
+                                break
+                            time_label = f" ({time_str})" if time_str else ""
+                            if ev_t == 'habis':
+                                reply += f"  {idx+1}. {ev['nama']}{time_label}\n     {ev.get('stock','-')} ➡️ Habis | {ev.get('harga','-')}\n"
+                            elif ev_t == 'restock':
+                                reply += f"  {idx+1}. {ev['nama']}{time_label}\n     Habis ➡️ {ev.get('stock','-')} | {ev.get('harga','-')}\n"
+                            elif ev_t == 'price_change':
+                                reply += f"  {idx+1}. {ev['nama']}{time_label}\n     {ev.get('stock','-')} ➡️ {ev.get('harga','-')}\n"
+                            elif ev_t == 'new':
+                                reply += f"  {idx+1}. {ev['nama']}{time_label}\n     Stok: {ev.get('stock','-')} | {ev.get('harga','-')}\n"
+                        reply += "\n"
+
+        reply += f"━━━━━━━━━━━━━━━━━━━━━\n"
+        
+        if is_specific:
+            reply += f"📊 Total: {len(events)} produk dalam {days} hari\n"
+            if filter_type == 'habis':
+                reply += f"💡 Produk ini bisa jadi peluang restock!\n"
+            elif filter_type == 'restock':
+                reply += f"🔥 Segera listing sebelum kehabisan lagi!\n"
+        else:
+            total_summary = []
+            if total_events['restock']: total_summary.append(f"+{total_events['restock']} restock")
+            if total_events['habis']: total_summary.append(f"-{total_events['habis']} habis")
+            if total_events['price_change']: total_summary.append(f"{total_events['price_change']} harga")
+            if total_events['new']: total_summary.append(f"{total_events['new']} baru")
+            reply += f"📊 Total {days} hari: " + ", ".join(total_summary)
+            if not show_all and days == 1 and sum(total_events.values()) > 40:
+                reply += f"\n(Tambahkan 'semua' untuk melihat data lengkap)"
 
         _send_long_message(bot, message.chat.id, reply, reply_to=message)
 

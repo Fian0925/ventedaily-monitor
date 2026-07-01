@@ -24,10 +24,13 @@ def log_event(nama, event_type, stock, harga):
     except Exception as e:
         print(f"Error logging event to Supabase: {e}")
 
-def get_events(event_type, days=1):
+def get_events(event_type=None, days=1):
     from datetime import datetime, timedelta, timezone
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-    url = f"{SUPABASE_URL}/product_events?event_type=eq.{event_type}&detected_at=gte.{since}"
+    if event_type:
+        url = f"{SUPABASE_URL}/product_events?event_type=eq.{event_type}&detected_at=gte.{since}&order=detected_at.desc"
+    else:
+        url = f"{SUPABASE_URL}/product_events?detected_at=gte.{since}&order=detected_at.desc"
     try:
         res = requests.get(url, headers=headers)
         res.raise_for_status()
