@@ -201,6 +201,8 @@ def register_handlers(bot):
                 "   └ Contoh: /perubahan habis 7\n\n"
                 "📊 /laporan\n"
                 "   └ Laporan mingguan produk baru & restock\n\n"
+                "👤 /profil — Cek sisa hari langganan & referral\n"
+                "⚙️ /pengaturan — Ubah marketplace & profit\n"
                 "🟢 /status — Cek status server\n"
                 "❓ /help — Tampilkan menu ini\n"
             )
@@ -969,7 +971,7 @@ def _generate_report(bot, chat_id, reply_to=None):
                 inviter = user_settings.get('referred_by')
                 if inviter:
                     database.increment_referral_count(inviter)
-                    # Beri bonus 10 hari ke inviter
+                    # Beri bonus 7 hari ke inviter
                     inviter_settings = database.get_user_settings(inviter)
                     inv_valid_str = inviter_settings.get('valid_until', '2000-01-01T00:00:00Z')
                     try:
@@ -978,10 +980,10 @@ def _generate_report(bot, chat_id, reply_to=None):
                         inv_valid = datetime.now(timezone.utc)
                     if inv_valid < datetime.now(timezone.utc):
                         inv_valid = datetime.now(timezone.utc)
-                    new_inv_valid = (inv_valid + timedelta(days=10)).isoformat()
+                    new_inv_valid = (inv_valid + timedelta(days=7)).isoformat()
                     database.update_subscription(inviter, inviter_settings.get('plan_type', 'pro'), new_inv_valid, "")
                     try:
-                        bot.send_message(inviter, f"🎁 <b>BONUS REFERRAL!</b>\n\nTeman yang kamu undang (ID: {target_id}) telah berlangganan! Kamu mendapatkan bonus masa aktif <b>+10 Hari</b>.", parse_mode="HTML")
+                        bot.send_message(inviter, f"🎁 <b>BONUS REFERRAL!</b>\n\nTeman yang kamu undang (ID: {target_id}) telah berlangganan! Kamu mendapatkan bonus masa aktif <b>+7 Hari</b>.", parse_mode="HTML")
                         bot.send_message(target_id, "🤝 Kamu mendaftar menggunakan link referral. Terima kasih!", parse_mode="HTML")
                     except:
                         pass
@@ -1175,7 +1177,7 @@ def _generate_report(bot, chat_id, reply_to=None):
             bot.edit_message_text("Pilih Marketplace Default kamu:", chat_id, call.message.message_id, reply_markup=kb)
             
         elif call.data == 'set_profit':
-            msg = bot.send_message(chat_id, "Silakan balas pesan ini dengan nilai Target Profit baru kamu.\n(Contoh: `20%` atau `30000`)", parse_mode="Markdown")
+            msg = bot.send_message(chat_id, "Silakan balas pesan ini dengan nilai Target Profit baru kamu.\n(Contoh: `20%` atau `30000`)\n\n<i>(Ketik 'batal' untuk membatalkan)</i>", parse_mode="HTML")
             bot.register_next_step_handler(msg, process_profit_step)
 
     @bot.callback_query_handler(func=lambda call: call.data.startswith('mp_'))
@@ -1183,21 +1185,38 @@ def _generate_report(bot, chat_id, reply_to=None):
         chat_id = call.message.chat.id
         mp = call.data.split('_')[1]
         
-        fee_map = {
-            'shopee': 6.5,
-            'tokopedia': 6.5,
-            'tiktok': 4.3,
-            'lazada': 1.8
-        }
-        fee = fee_map.get(mp, 6.5)
+        msg = bot.send_message(
+            chat_id,
+            f"Berapa % potongan Admin Fee di toko <b>{mp.capitalize()}</b> kamu?\n"
+            f"(Contoh: `6.5` atau `10`)\n\n"
+            f"<i>(Ketik 'batal' untuk membatalkan)</i>",
+            parse_mode="HTML"
+        )
+        bot.register_next_step_handler(msg, process_mp_fee_step, mp)
+        bot.answer_callback_query(call.id)
         
-        database.set_user_marketplace(chat_id, mp, fee)
-        bot.answer_callback_query(call.id, f"Marketplace diubah ke {mp.capitalize()}!")
-        bot.edit_message_text(f"✅ Marketplace berhasil diubah ke <b>{mp.capitalize()}</b> (Admin Fee {fee}%).", chat_id, call.message.message_id, parse_mode="HTML")
+    def process_mp_fee_step(message, mp):
+        chat_id = message.chat.id
+        text = message.text.strip().lower()
+        
+        if text in ['batal', 'cancel', '❌ batal']:
+            bot.reply_to(message, "✅ Aksi dibatalkan.")
+            return
+            
+        try:
+            fee = float(text.replace('%', ''))
+            database.set_user_marketplace(chat_id, mp, fee)
+            bot.reply_to(message, f"✅ Marketplace berhasil diubah ke <b>{mp.capitalize()}</b> dengan Admin Fee <b>{fee}%</b>.", parse_mode="HTML")
+        except Exception:
+            bot.reply_to(message, "❌ Format salah. Mohon masukkan angka, contoh: 6.5 atau 10")
 
     def process_profit_step(message):
         chat_id = message.chat.id
         text = message.text.strip().lower()
+        
+        if text in ['batal', 'cancel', '❌ batal']:
+            bot.reply_to(message, "✅ Aksi dibatalkan.")
+            return
         if text.endswith('%'):
             try:
                 val = float(text.replace('%', ''))
