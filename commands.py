@@ -149,8 +149,19 @@ def register_handlers(bot):
     # =====================
     @bot.message_handler(commands=['start', 'help'])
     def send_welcome(message):
-        settings = database.get_user_settings(message.chat.id)
+        chat_id = message.chat.id
         
+        args = message.text.split()
+        ref_id = None
+        if len(args) > 1 and args[1].startswith('ref_'):
+            ref_id = args[1].replace('ref_', '')
+            
+        settings = database.get_user_settings(chat_id)
+        
+        if ref_id and str(ref_id) != str(chat_id) and not settings.get('referred_by'):
+            database.set_referred_by(chat_id, ref_id)
+            settings['referred_by'] = ref_id
+            
         valid_until_str = settings.get('valid_until', '2000-01-01T00:00:00Z')
         try:
             from datetime import datetime, timezone
@@ -952,6 +963,29 @@ def _generate_report(bot, chat_id, reply_to=None):
             if database.update_subscription(target_id, 'pro', valid_until, ""):
                 bot.reply_to(message, f"✅ User {target_id} berhasil diaktifkan selama {days} hari.")
                 bot.send_message(target_id, f"🎉 <b>Langganan Aktif!</b>\n\nMasa aktif kamu telah ditambahkan selama {days} hari.\nSilakan gunakan perintah seperti /cari atau /hitung.", parse_mode="HTML")
+                
+                # Cek referral bonus
+                user_settings = database.get_user_settings(target_id)
+                inviter = user_settings.get('referred_by')
+                if inviter:
+                    database.increment_referral_count(inviter)
+                    # Beri bonus 10 hari ke inviter
+                    inviter_settings = database.get_user_settings(inviter)
+                    inv_valid_str = inviter_settings.get('valid_until', '2000-01-01T00:00:00Z')
+                    try:
+                        inv_valid = datetime.fromisoformat(inv_valid_str.replace('Z', '+00:00'))
+                    except:
+                        inv_valid = datetime.now(timezone.utc)
+                    if inv_valid < datetime.now(timezone.utc):
+                        inv_valid = datetime.now(timezone.utc)
+                    new_inv_valid = (inv_valid + timedelta(days=10)).isoformat()
+                    database.update_subscription(inviter, inviter_settings.get('plan_type', 'pro'), new_inv_valid, "")
+                    try:
+                        bot.send_message(inviter, f"🎁 <b>BONUS REFERRAL!</b>\n\nTeman yang kamu undang (ID: {target_id}) telah berlangganan! Kamu mendapatkan bonus masa aktif <b>+10 Hari</b>.", parse_mode="HTML")
+                        bot.send_message(target_id, "🤝 Kamu mendaftar menggunakan link referral. Terima kasih!", parse_mode="HTML")
+                    except:
+                        pass
+
             else:
                 bot.reply_to(message, "❌ Gagal update database.")
         except Exception as e:
@@ -1060,6 +1094,124 @@ def _generate_report(bot, chat_id, reply_to=None):
             except:
                 pass
         bot.reply_to(message, f"✅ Broadcast terkirim ke {sent} user aktif.")
+
+    # =====================
+    # /profil & /pengaturan
+    # =====================
+    @bot.message_handler(commands=['profil', 'pengaturan'])
+    def handle_profil(message):
+        chat_id = message.chat.id
+        settings = database.get_user_settings(chat_id)
+        
+        valid_until_str = settings.get('valid_until', '2000-01-01T00:00:00Z')
+        from datetime import datetime, timezone
+        try:
+            valid_until = datetime.fromisoformat(valid_until_str.replace('Z', '+00:00'))
+        except:
+            valid_until = datetime(2000, 1, 1, tzinfo=timezone.utc)
+            
+        now = datetime.now(timezone.utc)
+        
+        if valid_until > now or settings.get('role') == 'admin':
+            status = "🟢 <b>Aktif</b>"
+            if settings.get('role') == 'admin':
+                sisa = "Unlimited (Admin)"
+            else:
+                sisa = f"{(valid_until - now).days} Hari"
+        else:
+            status = "🔴 <b>Expired / Belum Aktif</b>"
+            sisa = "0 Hari"
+            
+        if settings.get('markup_type') == 'percent':
+            markup = f"{settings.get('markup_value', 0)}%"
+        else:
+            markup = f"Rp {settings.get('markup_value', 0):,.0f}"
+            
+        bot_info = bot.get_me()
+        ref_link = f"https://t.me/{bot_info.username}?start=ref_{chat_id}"
+        
+        reply = (
+            f"👤 <b>PROFIL & PENGATURAN</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🆔 ID Telegram: <code>{chat_id}</code>\n"
+            f"📊 Status: {status}\n"
+            f"⏳ Sisa Masa Aktif: <b>{sisa}</b>\n\n"
+            f"⚙️ <b>PENGATURAN SAAT INI:</b>\n"
+            f"🛒 Marketplace: <b>{settings.get('marketplace', 'shopee').capitalize()}</b>\n"
+            f"💰 Target Profit: <b>{markup}</b>\n\n"
+            f"🤝 <b>REFERRAL PROGRAM:</b>\n"
+            f"Bagikan link ini ke temanmu. Jika mereka langganan, kamu dapat <b>+10 Hari Ekstra!</b>\n"
+            f"🔗 Link: <code>{ref_link}</code>\n"
+            f"👥 Total Teman Langganan: <b>{settings.get('referral_count', 0)} Orang</b>\n"
+        )
+        
+        from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+        markup_kb = InlineKeyboardMarkup()
+        markup_kb.row(
+            InlineKeyboardButton("🛒 Ubah Marketplace", callback_data="set_mp"),
+            InlineKeyboardButton("💰 Ubah Profit", callback_data="set_profit")
+        )
+        
+        bot.reply_to(message, reply, parse_mode="HTML", reply_markup=markup_kb)
+
+    # =====================
+    # CALLBACK HANDLERS (Inline Keyboard)
+    # =====================
+    @bot.callback_query_handler(func=lambda call: call.data in ['set_mp', 'set_profit'])
+    def handle_settings_callback(call):
+        chat_id = call.message.chat.id
+        
+        # We don't check subscription for settings, they can view/change it anytime.
+        
+        if call.data == 'set_mp':
+            from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+            kb = InlineKeyboardMarkup(row_width=2)
+            kb.add(
+                InlineKeyboardButton("Shopee", callback_data="mp_shopee"),
+                InlineKeyboardButton("Tokopedia", callback_data="mp_tokopedia"),
+                InlineKeyboardButton("TikTok", callback_data="mp_tiktok"),
+                InlineKeyboardButton("Lazada", callback_data="mp_lazada")
+            )
+            bot.edit_message_text("Pilih Marketplace Default kamu:", chat_id, call.message.message_id, reply_markup=kb)
+            
+        elif call.data == 'set_profit':
+            msg = bot.send_message(chat_id, "Silakan balas pesan ini dengan nilai Target Profit baru kamu.\n(Contoh: `20%` atau `30000`)", parse_mode="Markdown")
+            bot.register_next_step_handler(msg, process_profit_step)
+
+    @bot.callback_query_handler(func=lambda call: call.data.startswith('mp_'))
+    def handle_mp_selection(call):
+        chat_id = call.message.chat.id
+        mp = call.data.split('_')[1]
+        
+        fee_map = {
+            'shopee': 6.5,
+            'tokopedia': 6.5,
+            'tiktok': 4.3,
+            'lazada': 1.8
+        }
+        fee = fee_map.get(mp, 6.5)
+        
+        database.set_user_marketplace(chat_id, mp, fee)
+        bot.answer_callback_query(call.id, f"Marketplace diubah ke {mp.capitalize()}!")
+        bot.edit_message_text(f"✅ Marketplace berhasil diubah ke <b>{mp.capitalize()}</b> (Admin Fee {fee}%).", chat_id, call.message.message_id, parse_mode="HTML")
+
+    def process_profit_step(message):
+        chat_id = message.chat.id
+        text = message.text.strip().lower()
+        if text.endswith('%'):
+            try:
+                val = float(text.replace('%', ''))
+                database.set_user_markup(chat_id, 'percent', val)
+                bot.reply_to(message, f"✅ Target Profit berhasil diubah menjadi {val}%")
+            except:
+                bot.reply_to(message, "❌ Format salah. Contoh: 20%")
+        else:
+            try:
+                val = float(text)
+                database.set_user_markup(chat_id, 'nominal', val)
+                bot.reply_to(message, f"✅ Target Profit berhasil diubah menjadi Rp {val:,.0f}")
+            except:
+                bot.reply_to(message, "❌ Format salah. Contoh: 30000")
 
     # =====================
     # FALLBACK HANDLER

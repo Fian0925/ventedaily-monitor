@@ -62,7 +62,9 @@ def get_user_settings(chat_id):
             "role": role,
             "plan_type": "none",
             "valid_until": "2000-01-01T00:00:00Z", # Expired by default
-            "reminder_sent": ""
+            "reminder_sent": "",
+            "referred_by": "",
+            "referral_count": 0
         }
         requests.post(f"{SUPABASE_URL}/user_settings", json=default_settings, headers=headers)
         return default_settings
@@ -79,7 +81,9 @@ def get_user_settings(chat_id):
             "role": role,
             "plan_type": "none",
             "valid_until": "2000-01-01T00:00:00Z",
-            "reminder_sent": ""
+            "reminder_sent": "",
+            "referred_by": "",
+            "referral_count": 0
         }
 
 def set_user_marketplace(chat_id, marketplace, fee):
@@ -148,3 +152,30 @@ def update_subscription(chat_id, plan_type, valid_until, reminder_sent=""):
     except Exception as e:
         print(f"Error updating subscription: {e}")
         return False
+
+def set_referred_by(chat_id, inviter_id):
+    payload = {
+        "chat_id": str(chat_id),
+        "referred_by": str(inviter_id)
+    }
+    headers_upsert = headers.copy()
+    headers_upsert["Prefer"] = "resolution=merge-duplicates"
+    try:
+        requests.post(f"{SUPABASE_URL}/user_settings", json=payload, headers=headers_upsert)
+    except Exception as e:
+        print(f"Error setting referred_by: {e}")
+
+def increment_referral_count(chat_id):
+    settings = get_user_settings(chat_id)
+    count = settings.get("referral_count", 0) + 1
+    payload = {
+        "chat_id": str(chat_id),
+        "referral_count": count
+    }
+    headers_upsert = headers.copy()
+    headers_upsert["Prefer"] = "resolution=merge-duplicates"
+    try:
+        requests.post(f"{SUPABASE_URL}/user_settings", json=payload, headers=headers_upsert)
+    except Exception as e:
+        print(f"Error incrementing referral count: {e}")
+
