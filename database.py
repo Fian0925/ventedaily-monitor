@@ -26,7 +26,7 @@ def log_event(nama, event_type, stock, harga):
 
 def get_events(event_type=None, days=1):
     from datetime import datetime, timedelta, timezone
-    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat().replace('+', '%2B')
     if event_type:
         url = f"{SUPABASE_URL}/product_events?event_type=eq.{event_type}&detected_at=gte.{since}&order=detected_at.desc"
     else:
