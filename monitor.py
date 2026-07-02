@@ -87,7 +87,9 @@ def scrape_all():
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Mulai scraping data...")
     while True:
         data, has_next = scrape_page(page)
-        if data is None: break
+        if data is None: 
+            print(f"Error pada halaman {page}, membatalkan proses scrape agar tidak merusak data.")
+            return None
         all_data.update(data)
         if not has_next: break
         page += 1
