@@ -19,7 +19,7 @@ def log_event(nama, event_type, stock, harga):
         "harga": harga
     }
     try:
-        res = requests.post(f"{SUPABASE_URL}/product_events", json=payload, headers=headers)
+        res = requests.post(f"{SUPABASE_URL}/product_events", json=payload, headers=headers, timeout=10)
         res.raise_for_status()
     except Exception as e:
         print(f"Error logging event to Supabase: {e}")
@@ -32,7 +32,7 @@ def get_events(event_type=None, days=1):
     else:
         url = f"{SUPABASE_URL}/product_events?detected_at=gte.{since}&order=detected_at.desc"
     try:
-        res = requests.get(url, headers=headers)
+        res = requests.get(url, headers=headers, timeout=10)
         res.raise_for_status()
         return res.json()
     except Exception as e:
@@ -42,7 +42,7 @@ def get_events(event_type=None, days=1):
 def get_user_settings(chat_id):
     url = f"{SUPABASE_URL}/user_settings?chat_id=eq.{chat_id}"
     try:
-        res = requests.get(url, headers=headers)
+        res = requests.get(url, headers=headers, timeout=10)
         res.raise_for_status()
         data = res.json()
         if data:
