@@ -1235,11 +1235,11 @@ def _generate_report(bot, chat_id, reply_to=None):
     # =====================
     # FALLBACK HANDLER
     # =====================
-    @bot.message_handler(func=lambda message: True)
+    @bot.message_handler(func=lambda message: True, content_types=['text', 'audio', 'document', 'photo', 'sticker', 'video', 'video_note', 'voice', 'location', 'contact'])
     def handle_unknown(message):
         bot.reply_to(
             message, 
-            "🤔 Maaf, saya tidak mengerti maksud kamu.\n\n"
+            "🤔 Maaf, saya tidak mengerti maksud atau format pesan yang kamu kirim.\n\n"
             "Ketik /help untuk melihat daftar perintah yang tersedia."
         )
 
