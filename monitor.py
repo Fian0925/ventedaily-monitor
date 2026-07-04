@@ -214,6 +214,16 @@ def check_expirations_job():
 
 def run_scheduler():
     print(f"=== Ventedaily Stock Monitor Started ===")
+    
+    # Warmup koneksi Supabase sebelum mulai scraping
+    # Ini agar request SSL pertama tidak lambat saat user pertama kali pakai bot
+    print("[WARMUP] Menginisialisasi koneksi ke Supabase...")
+    try:
+        database.get_all_users()
+        print("[WARMUP] Koneksi Supabase OK!")
+    except Exception as e:
+        print(f"[WARMUP] Warning: {e}")
+    
     job()
     schedule.every(config.CHECK_INTERVAL).minutes.do(job)
     schedule.every().hour.do(check_expirations_job)
@@ -246,7 +256,9 @@ if __name__ == "__main__":
     t.start()
     
     # Start the telegram bot listener
-    t2 = threading.Thread(target=lambda: bot.infinity_polling(), daemon=True)
+    # threaded=True agar setiap command diproses di thread terpisah
+    # sehingga satu command yang lambat tidak memblokir command lain
+    t2 = threading.Thread(target=lambda: bot.infinity_polling(threaded=True), daemon=True)
     t2.start()
     
     # Start the web server (needed for Render.com to not crash)
