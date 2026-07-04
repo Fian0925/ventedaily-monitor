@@ -11,6 +11,10 @@ headers = {
     "Prefer": "return=representation"
 }
 
+# Session reuses TCP+SSL connection, sehingga request ke-2 dst jauh lebih cepat
+session = requests.Session()
+session.headers.update(headers)
+
 def log_event(nama, event_type, stock, harga):
     payload = {
         "nama": nama,
@@ -19,7 +23,7 @@ def log_event(nama, event_type, stock, harga):
         "harga": harga
     }
     try:
-        res = requests.post(f"{SUPABASE_URL}/product_events", json=payload, headers=headers, timeout=10)
+        res = session.post(f"{SUPABASE_URL}/product_events", json=payload, headers=headers, timeout=10)
         res.raise_for_status()
     except Exception as e:
         print(f"Error logging event to Supabase: {e}")
@@ -32,7 +36,7 @@ def get_events(event_type=None, days=1):
     else:
         url = f"{SUPABASE_URL}/product_events?detected_at=gte.{since}&order=detected_at.desc"
     try:
-        res = requests.get(url, headers=headers, timeout=10)
+        res = session.get(url, headers=headers, timeout=10)
         res.raise_for_status()
         return res.json()
     except Exception as e:
@@ -42,7 +46,7 @@ def get_events(event_type=None, days=1):
 def get_user_settings(chat_id):
     url = f"{SUPABASE_URL}/user_settings?chat_id=eq.{chat_id}"
     try:
-        res = requests.get(url, headers=headers, timeout=10)
+        res = session.get(url, headers=headers, timeout=10)
         res.raise_for_status()
         data = res.json()
         if data:
@@ -66,7 +70,7 @@ def get_user_settings(chat_id):
             "referred_by": "",
             "referral_count": 0
         }
-        requests.post(f"{SUPABASE_URL}/user_settings", json=default_settings, headers=headers, timeout=10)
+        session.post(f"{SUPABASE_URL}/user_settings", json=default_settings, headers=headers, timeout=10)
         return default_settings
     except Exception as e:
         print(f"Error getting/creating user settings: {e}")
@@ -95,7 +99,7 @@ def set_user_marketplace(chat_id, marketplace, fee):
     headers_upsert = headers.copy()
     headers_upsert["Prefer"] = "resolution=merge-duplicates"
     try:
-        res = requests.post(f"{SUPABASE_URL}/user_settings", json=payload, headers=headers_upsert, timeout=10)
+        res = session.post(f"{SUPABASE_URL}/user_settings", json=payload, headers=headers_upsert, timeout=10)
         res.raise_for_status()
     except Exception as e:
         print(f"Error setting marketplace: {e}")
@@ -109,7 +113,7 @@ def set_user_markup(chat_id, markup_type, value):
     headers_upsert = headers.copy()
     headers_upsert["Prefer"] = "resolution=merge-duplicates"
     try:
-        res = requests.post(f"{SUPABASE_URL}/user_settings", json=payload, headers=headers_upsert, timeout=10)
+        res = session.post(f"{SUPABASE_URL}/user_settings", json=payload, headers=headers_upsert, timeout=10)
         res.raise_for_status()
     except Exception as e:
         print(f"Error setting markup: {e}")
@@ -117,7 +121,7 @@ def set_user_markup(chat_id, markup_type, value):
 def get_all_users():
     url = f"{SUPABASE_URL}/user_settings"
     try:
-        res = requests.get(url, headers=headers, timeout=10)
+        res = session.get(url, headers=headers, timeout=10)
         res.raise_for_status()
         return res.json()
     except Exception as e:
@@ -129,7 +133,7 @@ def get_active_users():
     now = datetime.now(timezone.utc).isoformat().replace('+', '%2B')
     url = f"{SUPABASE_URL}/user_settings?valid_until=gt.{now}"
     try:
-        res = requests.get(url, headers=headers, timeout=10)
+        res = session.get(url, headers=headers, timeout=10)
         res.raise_for_status()
         return res.json()
     except Exception as e:
@@ -146,7 +150,7 @@ def update_subscription(chat_id, plan_type, valid_until, reminder_sent=""):
     headers_upsert = headers.copy()
     headers_upsert["Prefer"] = "resolution=merge-duplicates"
     try:
-        res = requests.post(f"{SUPABASE_URL}/user_settings", json=payload, headers=headers_upsert, timeout=10)
+        res = session.post(f"{SUPABASE_URL}/user_settings", json=payload, headers=headers_upsert, timeout=10)
         res.raise_for_status()
         return True
     except Exception as e:
@@ -161,7 +165,7 @@ def set_referred_by(chat_id, inviter_id):
     headers_upsert = headers.copy()
     headers_upsert["Prefer"] = "resolution=merge-duplicates"
     try:
-        requests.post(f"{SUPABASE_URL}/user_settings", json=payload, headers=headers_upsert, timeout=10)
+        session.post(f"{SUPABASE_URL}/user_settings", json=payload, headers=headers_upsert, timeout=10)
     except Exception as e:
         print(f"Error setting referred_by: {e}")
 
@@ -175,7 +179,7 @@ def increment_referral_count(chat_id):
     headers_upsert = headers.copy()
     headers_upsert["Prefer"] = "resolution=merge-duplicates"
     try:
-        requests.post(f"{SUPABASE_URL}/user_settings", json=payload, headers=headers_upsert, timeout=10)
+        session.post(f"{SUPABASE_URL}/user_settings", json=payload, headers=headers_upsert, timeout=10)
     except Exception as e:
         print(f"Error incrementing referral count: {e}")
 
