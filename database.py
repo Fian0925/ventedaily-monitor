@@ -126,7 +126,7 @@ def get_all_users():
 
 def get_active_users():
     from datetime import datetime, timezone
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(timezone.utc).isoformat().replace('+', '%2B')
     url = f"{SUPABASE_URL}/user_settings?valid_until=gt.{now}"
     try:
         res = requests.get(url, headers=headers, timeout=10)
@@ -161,13 +161,13 @@ def set_referred_by(chat_id, inviter_id):
     headers_upsert = headers.copy()
     headers_upsert["Prefer"] = "resolution=merge-duplicates"
     try:
-        requests.post(f"{SUPABASE_URL}/user_settings", json=payload, headers=headers_upsert)
+        requests.post(f"{SUPABASE_URL}/user_settings", json=payload, headers=headers_upsert, timeout=10)
     except Exception as e:
         print(f"Error setting referred_by: {e}")
 
 def increment_referral_count(chat_id):
     settings = get_user_settings(chat_id)
-    count = settings.get("referral_count", 0) + 1
+    count = (settings.get("referral_count") or 0) + 1
     payload = {
         "chat_id": str(chat_id),
         "referral_count": count
@@ -175,7 +175,7 @@ def increment_referral_count(chat_id):
     headers_upsert = headers.copy()
     headers_upsert["Prefer"] = "resolution=merge-duplicates"
     try:
-        requests.post(f"{SUPABASE_URL}/user_settings", json=payload, headers=headers_upsert)
+        requests.post(f"{SUPABASE_URL}/user_settings", json=payload, headers=headers_upsert, timeout=10)
     except Exception as e:
         print(f"Error incrementing referral count: {e}")
 

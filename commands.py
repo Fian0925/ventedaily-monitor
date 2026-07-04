@@ -1049,8 +1049,37 @@ def _generate_report(bot, chat_id, reply_to=None):
             return
         target_id = args[1]
         settings = database.get_user_settings(target_id)
+        from datetime import datetime, timezone
         valid_until_str = settings.get('valid_until', '2000-01-01T00:00:00Z')
-        bot.reply_to(message, f"User {target_id}\nPlan: {settings.get('plan_type')}\nValid Until: {valid_until_str}")
+        try:
+            valid_until = datetime.fromisoformat(valid_until_str.replace('Z', '+00:00'))
+            now = datetime.now(timezone.utc)
+            if valid_until > now:
+                sisa = f"{(valid_until - now).days} hari"
+                status = "🟢 Aktif"
+            else:
+                sisa = "0 hari (Expired)"
+                status = "🔴 Expired"
+        except:
+            sisa = "-"
+            status = "❓ Unknown"
+        mp = settings.get('marketplace', 'shopee').capitalize()
+        fee = settings.get('admin_fee', '-')
+        ref_count = settings.get('referral_count') or 0
+        bot.reply_to(
+            message,
+            f"🔍 <b>Info User</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🆔 Chat ID: <code>{target_id}</code>\n"
+            f"📋 Plan: {settings.get('plan_type', '-')}\n"
+            f"📊 Status: {status}\n"
+            f"⏳ Sisa: <b>{sisa}</b>\n"
+            f"📅 Berlaku s/d: {valid_until_str[:10]}\n"
+            f"🛒 Marketplace: {mp} ({fee}%)\n"
+            f"👥 Referral: {ref_count} orang\n"
+            f"🔗 Diajak oleh: {settings.get('referred_by') or '-'}",
+            parse_mode="HTML"
+        )
 
     @bot.message_handler(commands=['users'])
     def handle_users(message):
