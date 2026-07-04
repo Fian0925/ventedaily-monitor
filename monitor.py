@@ -103,7 +103,11 @@ def compare_data(old_data, new_data):
     changes = []
     for prod_nama, new_item in new_data.items():
         if prod_nama not in old_data:
-            changes.append(f"🟢 <b>PRODUK BARU</b>\nNama: {prod_nama}\nStok: {new_item['stock']}\nHarga: {new_item['harga']}")
+            changes.append(
+                f"🟢 <b>PRODUK BARU</b>\n"
+                f"🏷️ {prod_nama}\n"
+                f"Stok: {new_item['stock']} | Harga: {new_item['harga']}"
+            )
             database.log_event(prod_nama, 'new', new_item['stock'], new_item['harga'])
         else:
             old_item = old_data[prod_nama]
@@ -114,7 +118,7 @@ def compare_data(old_data, new_data):
                 new_st = new_item['stock'].lower()
                 icon = "🔄"
                 if "habis" in old_st and ("ready" in new_st or "aman" in new_st): 
-                    icon = "✅"
+                    icon = "✔️"
                     database.log_event(prod_nama, 'restock', new_item['stock'], new_item['harga'])
                 elif ("ready" in old_st or "aman" in old_st) and "habis" in new_st: 
                     icon = "❌"
@@ -126,14 +130,15 @@ def compare_data(old_data, new_data):
                 database.log_event(prod_nama, 'price_change', old_item['harga'], new_item['harga'])
                 
             if prod_changes:
-                msg = f"⚠️ <b>PERUBAHAN DATA</b>\n{prod_nama}\n" + "\n".join(prod_changes)
+                msg = f"⚠️ <b>PERUBAHAN DATA</b>\n🏷️ {prod_nama}\n" + "\n".join(prod_changes)
                 changes.append(msg)
                 
     for prod_nama, old_item in old_data.items():
         if prod_nama not in new_data:
-            changes.append(f"🔴 <b>PRODUK DIHAPUS</b>\nNama: {prod_nama}")
+            changes.append(f"🔴 <b>PRODUK DIHAPUS</b>\n🏷️ {prod_nama}")
             
     return changes
+
 
 def job():
     try:
