@@ -1142,9 +1142,9 @@ def _generate_report(bot, chat_id, reply_to=None):
             f"🛒 Marketplace: <b>{settings.get('marketplace', 'shopee').capitalize()}</b>\n"
             f"💰 Target Profit: <b>{markup}</b>\n\n"
             f"🤝 <b>REFERRAL PROGRAM:</b>\n"
-            f"Bagikan link ini ke temanmu. Jika mereka langganan, kamu dapat <b>+10 Hari Ekstra!</b>\n"
+            f"Bagikan link ini ke temanmu. Jika mereka langganan, kamu dapat <b>+7 Hari Ekstra!</b>\n"
             f"🔗 Link: <code>{ref_link}</code>\n"
-            f"👥 Total Teman Langganan: <b>{settings.get('referral_count', 0)} Orang</b>\n"
+            f"👥 Total Teman Langganan: <b>{settings.get('referral_count') or 0} Orang</b>\n"
         )
         
         from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
