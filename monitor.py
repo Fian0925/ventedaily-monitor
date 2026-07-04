@@ -93,7 +93,8 @@ def scrape_all():
         all_data.update(data)
         if not has_next: break
         page += 1
-        time.sleep(0.1)
+        # Beri jeda lebih lama agar CPU Render (Free Tier) tidak 100% dan memblokir command lain
+        time.sleep(0.5)
         
     print(f"Selesai! Berhasil mengambil {len(all_data)} produk dari {page} halaman.")
     return all_data
