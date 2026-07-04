@@ -256,9 +256,7 @@ if __name__ == "__main__":
     t.start()
     
     # Start the telegram bot listener
-    # threaded=True agar setiap command diproses di thread terpisah
-    # sehingga satu command yang lambat tidak memblokir command lain
-    t2 = threading.Thread(target=lambda: bot.infinity_polling(threaded=True), daemon=True)
+    t2 = threading.Thread(target=lambda: bot.infinity_polling(skip_pending=True), daemon=True)
     t2.start()
     
     # Start the web server (needed for Render.com to not crash)
