@@ -7,7 +7,7 @@ import os
 import re
 from datetime import datetime
 import threading
-from flask import Flask
+from flask import Flask, send_file
 import telebot
 import config
 import database
@@ -20,6 +20,12 @@ bot = telebot.TeleBot(config.TELEGRAM_BOT_TOKEN)
 @app.route('/')
 def home():
     return "Bot Monitoring Ventedaily Sedang Berjalan 24/7!"
+
+@app.route('/api/data')
+def get_data():
+    if os.path.exists(DATA_FILE):
+        return send_file(DATA_FILE, mimetype='application/json')
+    return {"error": "Data belum tersedia, bot sedang loading."}, 404
 
 def send_admin_message(message):
     try:
