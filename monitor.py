@@ -7,7 +7,7 @@ import os
 import re
 from datetime import datetime
 import threading
-from flask import Flask, send_file
+from flask import Flask, send_file, make_response
 import telebot
 import config
 import database
@@ -24,8 +24,12 @@ def home():
 @app.route('/api/data')
 def get_data():
     if os.path.exists(DATA_FILE):
-        return send_file(DATA_FILE, mimetype='application/json')
-    return {"error": "Data belum tersedia, bot sedang loading."}, 404
+        response = make_response(send_file(DATA_FILE, mimetype='application/json'))
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        return response
+    response = make_response({"error": "Data belum tersedia, bot sedang loading."}, 404)
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    return response
 
 def send_admin_message(message):
     try:
