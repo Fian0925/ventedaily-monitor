@@ -281,7 +281,8 @@ def register_handlers(bot):
             with open(DATA_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             mod_time = os.path.getmtime(DATA_FILE)
-            last_check = datetime.fromtimestamp(mod_time).strftime('%Y-%m-%d %H:%M:%S')
+            from datetime import timezone, timedelta
+            last_check = datetime.fromtimestamp(mod_time, timezone(timedelta(hours=7))).strftime('%Y-%m-%d %H:%M:%S WIB')
             total_items = len(data)
             reply = (
                 f"🟢 <b>Server Berjalan Normal!</b>\n\n"
@@ -375,7 +376,8 @@ def register_handlers(bot):
         for ev in events:
             dt_str = ev.get('detected_at', '')
             try:
-                dt = datetime.fromisoformat(dt_str.replace('Z', '+00:00'))
+                from datetime import timezone, timedelta
+                dt = datetime.fromisoformat(dt_str.replace('Z', '+00:00')).astimezone(timezone(timedelta(hours=7)))
                 day_key = dt.strftime('%d %b %Y')
                 time_str = dt.strftime('%H:%M')
             except Exception:
@@ -425,7 +427,8 @@ def register_handlers(bot):
         for ev in events:
             dt_str = ev.get('detected_at', '')
             try:
-                dt = datetime.fromisoformat(dt_str.replace('Z', '+00:00'))
+                from datetime import timezone, timedelta
+                dt = datetime.fromisoformat(dt_str.replace('Z', '+00:00')).astimezone(timezone(timedelta(hours=7)))
                 day_key = dt.strftime('%d %b %Y')
                 time_str = dt.strftime('%H:%M')
             except Exception:
@@ -735,7 +738,8 @@ def register_handlers(bot):
         has_markup = markup_value > 0
 
         reply = "🛍️ <b>KATALOG VENTEDAILY</b>\n"
-        reply += f"📅 {datetime.now().strftime('%d %b %Y | %H:%M WIB')}\n"
+        from datetime import timezone, timedelta
+        reply += f"📅 {datetime.now(timezone(timedelta(hours=7))).strftime('%d %b %Y | %H:%M WIB')}\n"
         reply += f"━━━━━━━━━━━━━━━━━━━━━\n\n"
 
         # Group by brand (first word of product name, after removing (Glamloc) prefix)
@@ -834,7 +838,8 @@ def register_handlers(bot):
         for ev in events:
             dt_str = ev.get('detected_at', '')
             try:
-                dt = datetime.fromisoformat(dt_str.replace('Z', '+00:00'))
+                from datetime import timezone, timedelta
+                dt = datetime.fromisoformat(dt_str.replace('Z', '+00:00')).astimezone(timezone(timedelta(hours=7)))
                 day_key = dt.strftime('%d %b %Y')
                 time_str = dt.strftime('%H:%M')
             except Exception:
@@ -968,10 +973,11 @@ def _generate_report(bot, chat_id, reply_to=None):
     else:
         aman_count = ready_count = habis_count = 0
 
+    from datetime import timezone, timedelta
     reply = (
         f"📊 <b>LAPORAN MINGGUAN</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"📅 {datetime.now().strftime('%d %b %Y | %H:%M WIB')}\n\n"
+        f"📅 {datetime.now(timezone(timedelta(hours=7))).strftime('%d %b %Y | %H:%M WIB')}\n\n"
         f"📦 <b>Total Produk:</b> {total_produk}\n"
         f"   ✅ Aman: {aman_count}\n"
         f"   📦 Ready: {ready_count}\n"

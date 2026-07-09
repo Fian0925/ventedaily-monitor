@@ -94,7 +94,8 @@ def scrape_page(page):
 def scrape_all():
     all_data = {}
     page = 1
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Mulai scraping data...")
+    from datetime import timezone, timedelta
+    print(f"[{datetime.now(timezone(timedelta(hours=7))).strftime('%Y-%m-%d %H:%M:%S WIB')}] Mulai scraping data...")
     while True:
         data, has_next = scrape_page(page)
         if data is None: 
