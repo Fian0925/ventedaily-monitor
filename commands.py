@@ -128,7 +128,7 @@ def _check_subscription(bot, message):
             "🔥 <b>Langganan sekarang untuk menikmati:</b>\n"
             "✅ Notifikasi otomatis (Restock & Produk Baru) 24/7\n"
             "✅ Kalkulator instan harga modal & jual berbagai Marketplace\n"
-            "✅ Generate katalog otomatis siap sebar\n\n"
+            "✅ Pencarian cepat dan rapi\n\n"
             "👉 Hubungi Admin <b>@fianfi</b> untuk pendaftaran atau perpanjangan masa aktif.", 
             parse_mode="HTML"
         )
