@@ -332,7 +332,7 @@ def register_handlers(bot):
                 for sz in size_order:
                     if sz in sizes:
                         stock = sizes[sz].lower()
-                        icon = "✅" if stock == "aman" else "📦"
+                        icon = "✅" if stock == "aman" else "⚠️"
                         size_display.append(f"{sz}{icon}")
                 if size_display:
                     if warna != "-":
@@ -341,7 +341,8 @@ def register_handlers(bot):
                         reply += f"  • {' '.join(size_display)}\n"
             reply += "\n"
 
-        reply += f"📊 Total Ready: {len(ready)} produk"
+        reply += f"📊 Total Produk: {len(ready)}\n\n"
+        reply += f"<i>Keterangan:\n✅ = Stok Aman (Banyak)\n⚠️ = Stok Ready (Limit 1 pcs)</i>"
 
         _send_long_message(bot, message.chat.id, reply, reply_to=message)
 
@@ -750,11 +751,18 @@ def register_handlers(bot):
             for warna in sorted(colors.keys()):
                 sizes = colors[warna]
                 size_order = ['S', 'M', 'L', 'XL', 'XXL', 'XXXL', '-']
-                avail = [sz for sz in size_order if sz in sizes]
-                if warna != "-":
-                    reply += f"  • {warna}: {', '.join(avail)}\n"
-                else:
-                    reply += f"  • Size: {', '.join(avail)}\n"
+                size_display = []
+                for sz in size_order:
+                    if sz in sizes:
+                        stock = sizes[sz].lower()
+                        icon = "✅" if stock == "aman" else "⚠️"
+                        size_display.append(f"{sz}{icon}")
+                
+                if size_display:
+                    if warna != "-":
+                        reply += f"  • {warna}: {' '.join(size_display)}\n"
+                    else:
+                        reply += f"  • {' '.join(size_display)}\n"
             reply += "\n"
 
         reply += f"━━━━━━━━━━━━━━━━━━━━━\n"
@@ -762,7 +770,7 @@ def register_handlers(bot):
         if has_markup:
             mp_name = calculator.MARKETPLACES.get(default_mp, {}).get('name', 'Shopee')
             reply += f"💰 Harga jual untuk {mp_name}\n"
-        reply += f"✅ = Aman | 📦 = Ready\n"
+        reply += f"\n<i>Keterangan:\n✅ = Stok Aman (Banyak)\n⚠️ = Stok Ready (Limit 1 pcs)</i>\n"
         reply += f"\n📱 Minat? Chat admin ya!"
 
         _send_long_message(bot, message.chat.id, reply, reply_to=message)
