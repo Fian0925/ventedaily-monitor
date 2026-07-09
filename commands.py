@@ -223,19 +223,48 @@ def register_handlers(bot):
                 "👋 <b>Halo! Selamat datang di Ventedaily Monitor Bot.</b>\n\n"
                 "Bot ini adalah asisten andalan untuk memaksimalkan jualanmu!\n\n"
                 "🔥 <b>Fitur Unggulan:</b>\n"
+                "✅ <b>Cek Stok Cepat & Rapi:</b> Cek stok Ventedaily dengan sangat cepat, rapi dan terstruktur. Tersedia juga fitur katalog siap copas ke WA customer.\n"
                 "✅ <b>Notifikasi Otomatis:</b> Dapatkan info Restock & Produk Baru secara real-time (24/7).\n"
-                "✅ <b>Kalkulator Instan:</b> Hitung modal + admin fee (Shopee/Tokped/Tiktok/Lazada) + target profit hanya dalam 1 detik.\n"
-                "✅ <b>Cek Stok Cepat & Rapi:</b> Cek stok Ventedaily dengan sangat cepat, rapi dan terstruktur. Tersedia juga fitur katalog siap copas ke WA customer.\n\n"
+                "✅ <b>Kalkulator Instan:</b> Hitung modal + admin fee (Shopee/Tokped/Tiktok/Lazada) + target profit.\n\n"
                 "⚠️ <b>Status Akun: Belum Aktif</b>\n"
                 f"ID Telegram kamu: <code>{message.chat.id}</code>\n\n"
                 "💳 <b>Info Langganan:</b>\n"
                 "Promo <s>Rp 50.000</s> jadi <b>Rp 25.000 / bulan</b>\n"
                 "<i>(Hanya Rp 800-an per hari untuk menghemat waktumu!)</i>\n\n"
-                "👉 <b>Pendaftaran & Free Trial:</b>\n"
-                "Tertarik? Langsung saja hubungi Admin: <b>@Fian0925</b>\n\n"
-                "<i>Catatan: Bot ini menggunakan sistem auto-cek web, data stok bisa memiliki jeda keterlambatan beberapa menit dari website aslinya.</i>", 
+                "🎁 <b>Coba Gratis (Free Trial)</b>\n"
+                "Ketik perintah /trial sekarang untuk mengaktifkan akses gratis selama 5 Hari!\n\n"
+                "👉 <b>Pendaftaran & Bantuan:</b>\n"
+                "Hubungi Admin: <b>@Fian0925</b>\n\n"
+                "<i>Catatan: Bot menggunakan sistem auto-cek web. Data stok bisa memiliki jeda keterlambatan beberapa menit dari website aslinya.</i>", 
                 parse_mode="HTML"
             )
+    # =====================
+    # /trial
+    # =====================
+    @bot.message_handler(commands=['trial'])
+    def handle_trial(message):
+        chat_id = message.chat.id
+        settings = database.get_user_settings(chat_id)
+        
+        # Cek apakah user benar-benar baru (valid_until masih default)
+        if settings.get('valid_until') != '2000-01-01T00:00:00Z':
+            bot.reply_to(message, "❌ <b>Gagal!</b> Kamu sudah pernah menikmati Free Trial atau sudah berlangganan sebelumnya.", parse_mode="HTML")
+            return
+            
+        from datetime import datetime, timedelta, timezone
+        now = datetime.now(timezone.utc)
+        new_valid = now + timedelta(days=5)
+        valid_until_str = new_valid.strftime('%Y-%m-%dT%H:%M:%SZ')
+        
+        database.update_subscription(chat_id, "trial", valid_until_str, "")
+        
+        bot.reply_to(message, 
+            "🎉 <b>FREE TRIAL BERHASIL DIAKTIFKAN!</b>\n\n"
+            "Selamat! Kamu mendapatkan akses <b>penuh</b> ke semua fitur bot selama <b>5 Hari</b> ke depan.\n\n"
+            "👉 Ketik /help untuk melihat cara penggunaan bot.\n"
+            "👉 Ketik /cari [nama produk] untuk mulai mencari stok.",
+            parse_mode="HTML"
+        )
 
     # =====================
     # /status
