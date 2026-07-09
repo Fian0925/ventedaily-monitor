@@ -15,8 +15,13 @@ def _load_snapshot():
     """Load data snapshot dan normalize ke format {nama: {stock, harga}}"""
     if not os.path.exists(DATA_FILE):
         return None
-    with open(DATA_FILE, 'r', encoding='utf-8') as f:
-        data = json.load(f)
+    try:
+        with open(DATA_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except Exception as e:
+        print(f"Error loading snapshot: {e}")
+        return None
+        
     # Handle format lama (key numerik)
     if data and list(data.keys())[0].isdigit():
         normalized = {}

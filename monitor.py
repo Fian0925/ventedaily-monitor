@@ -180,8 +180,10 @@ def job():
         else:
             send_admin_message("🤖 <b>Bot Monitoring Ventedaily Aktif!</b>\nBerhasil mengambil snapshot awal. Sistem akan mulai memonitor perubahan.")
             
-        with open(DATA_FILE, 'w', encoding='utf-8') as f:
+        temp_file = f"{DATA_FILE}.tmp"
+        with open(temp_file, 'w', encoding='utf-8') as f:
             json.dump(new_data, f, indent=4, ensure_ascii=False)
+        os.replace(temp_file, DATA_FILE)
             
     except Exception as e:
         print(f"Error during job execution: {e}")
