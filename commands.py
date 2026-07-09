@@ -221,14 +221,19 @@ def register_handlers(bot):
             bot.reply_to(
                 message, 
                 "👋 <b>Halo! Selamat datang di Ventedaily Monitor Bot.</b>\n\n"
-                "Bot ini adalah asisten pribadi untuk memaksimalkan jualanmu!\n\n"
+                "Bot ini adalah asisten andalan untuk memaksimalkan jualanmu!\n\n"
                 "🔥 <b>Fitur Unggulan:</b>\n"
-                "✅ <b>Notifikasi Restock Tercepat:</b> Jangan sampai kehabisan barang incaran! Bot otomatis ngasih tau kamu 24/7 saat barang habis jadi ready.\n"
-                "✅ <b>Kalkulator Instan:</b> Mau tau harga jual di Shopee/Tokopedia biar tetep untung? Cukup ketik nama produk, bot otomatis hitungin Modal + Admin Fee + Target Profit!\n"
-                "✅ <b>Katalog Otomatis:</b> Tinggal ketik /katalog, langsung keluar list barang lengkap dengan sisa size-nya. Siap copas ke WA customer.\n\n"
-                f"⚠️ <b>Status Akun: Belum Aktif</b>\n"
+                "✅ <b>Notifikasi Otomatis:</b> Dapatkan info Restock & Produk Baru secara real-time (24/7).\n"
+                "✅ <b>Kalkulator Instan:</b> Hitung modal + admin fee (Shopee/Tokped/Tiktok/Lazada) + target profit hanya dalam 1 detik.\n"
+                "✅ <b>Cek Stok Cepat & Rapi:</b> Cek stok Ventedaily dengan sangat cepat, rapi dan terstruktur. Tersedia juga fitur katalog siap copas ke WA customer.\n\n"
+                "⚠️ <b>Status Akun: Belum Aktif</b>\n"
                 f"ID Telegram kamu: <code>{message.chat.id}</code>\n\n"
-                "👉 <b>Tertarik mencoba?</b> Hubungi Admin sekarang untuk aktivasi akun dan dapatkan keuntungannya!", 
+                "💳 <b>Info Langganan:</b>\n"
+                "Promo <s>Rp 50.000</s> jadi <b>Rp 25.000 / bulan</b>\n"
+                "<i>(Hanya Rp 800-an per hari untuk menghemat waktumu!)</i>\n\n"
+                "👉 <b>Pendaftaran & Free Trial:</b>\n"
+                "Tertarik? Langsung saja hubungi Admin: <b>@Fian0925</b>\n\n"
+                "<i>Catatan: Bot ini menggunakan sistem auto-cek web, data stok bisa memiliki jeda keterlambatan beberapa menit dari website aslinya.</i>", 
                 parse_mode="HTML"
             )
 
