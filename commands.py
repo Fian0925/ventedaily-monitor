@@ -129,7 +129,7 @@ def _check_subscription(bot, message):
             "✅ Notifikasi otomatis (Restock & Produk Baru) 24/7\n"
             "✅ Kalkulator instan harga modal & jual berbagai Marketplace\n"
             "✅ Generate katalog otomatis siap sebar\n\n"
-            "👉 Hubungi Admin untuk pendaftaran atau perpanjangan masa aktif.", 
+            "👉 Hubungi Admin <b>@Fian0925</b> untuk pendaftaran atau perpanjangan masa aktif.", 
             parse_mode="HTML"
         )
         return False
