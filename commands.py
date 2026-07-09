@@ -129,7 +129,7 @@ def _check_subscription(bot, message):
             "✅ Notifikasi otomatis (Restock & Produk Baru) 24/7\n"
             "✅ Kalkulator instan harga modal & jual berbagai Marketplace\n"
             "✅ Generate katalog otomatis siap sebar\n\n"
-            "👉 Hubungi Admin <b>@Fian0925</b> untuk pendaftaran atau perpanjangan masa aktif.", 
+            "👉 Hubungi Admin <b>@fianfi</b> untuk pendaftaran atau perpanjangan masa aktif.", 
             parse_mode="HTML"
         )
         return False
@@ -235,7 +235,7 @@ def register_handlers(bot):
                 "🎁 <b>Coba Gratis (Free Trial)</b>\n"
                 "Ketik perintah /trial sekarang untuk mengaktifkan akses gratis selama 5 Hari!\n\n"
                 "👉 <b>Pendaftaran & Bantuan:</b>\n"
-                "Hubungi Admin: <b>@Fian0925</b>\n\n"
+                "Hubungi Admin: <b>@fianfi</b>\n\n"
                 "<i>Catatan: Bot menggunakan sistem auto-cek web. Data stok bisa memiliki jeda keterlambatan beberapa menit dari website aslinya.</i>", 
                 parse_mode="HTML"
             )
