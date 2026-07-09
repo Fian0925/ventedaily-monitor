@@ -777,6 +777,7 @@ def register_handlers(bot):
         filter_type = None
         days = 1
         show_all = False
+        specific_date = None
         
         # Parse arguments
         for arg in args[1:]:
@@ -788,8 +789,19 @@ def register_handlers(bot):
                 days = int(arg)
             elif arg == 'semua':
                 show_all = True
+            elif '-' in arg or '/' in arg:
+                try:
+                    clean_arg = arg.replace('/', '-')
+                    parts = clean_arg.split('-')
+                    if len(parts) == 3:
+                        if len(parts[0]) == 4: # YYYY-MM-DD
+                            specific_date = clean_arg
+                        else: # DD-MM-YYYY -> YYYY-MM-DD
+                            specific_date = f"{parts[2]}-{parts[1].zfill(2)}-{parts[0].zfill(2)}"
+                except:
+                    pass
                 
-        events = database.get_events(filter_type, days)
+        events = database.get_events(filter_type, days, specific_date)
         
         if not events:
             filter_name = ""
@@ -827,11 +839,18 @@ def register_handlers(bot):
             'new': ('🆕', 'PRODUK BARU')
         }
         
-        if is_specific:
-            icon, title = title_map.get(filter_type, ('📋', 'PERUBAHAN'))
-            reply = f"📋 <b>PERUBAHAN: {title} ({days} HARI)</b>\n━━━━━━━━━━━━━━━━━━━━━\n\n"
+        if specific_date:
+            from datetime import datetime
+            try:
+                dt_obj = datetime.strptime(specific_date, "%Y-%m-%d")
+                date_str = dt_obj.strftime("%d %b %Y")
+            except:
+                date_str = specific_date
+            reply = f"📋 <b>LAPORAN PERUBAHAN TANGGAL {date_str}</b>\n"
         else:
-            reply = f"📋 <b>LAPORAN PERUBAHAN ({days} HARI)</b>\n━━━━━━━━━━━━━━━━━━━━━\n\n"
+            reply = f"📋 <b>LAPORAN PERUBAHAN ({days} HARI)</b>\n"
+        
+        reply += f"━━━━━━━━━━━━━━━━━━━━━\n\n"
 
         for day in sorted(by_day.keys(), reverse=True):
             day_data = by_day[day]
