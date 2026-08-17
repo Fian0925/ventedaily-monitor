@@ -134,7 +134,8 @@ def _check_subscription(bot, message):
             "✅ Notifikasi otomatis (Restock & Produk Baru) 24/7\n"
             "✅ Kalkulator instan harga modal & jual berbagai Marketplace\n"
             "✅ Pencarian cepat dan rapi\n\n"
-            "👉 Hubungi Admin <b>@fianfi</b> untuk pendaftaran atau perpanjangan masa aktif.", 
+            "💳 Ketik /langganan untuk aktivasi atau perpanjangan via QRIS.\n"
+            "👉 Bantuan admin: <b>@fianfi</b>", 
             parse_mode="HTML"
         )
         return False
@@ -207,7 +208,9 @@ def register_handlers(bot):
                 "   └ Contoh 2: /perubahan restock 06-07-2026 semua\n\n"
                 "📊 /laporan\n"
                 "   └ Laporan mingguan produk baru & restock\n\n"
-                "👤 /profil — Cek sisa hari langganan & referral\n"
+                "👤 /profil — Cek sisa hari langganan & referral\n"                "💳 /langganan — Pilih / perpanjang paket via QRIS\n"
+                "📄 /tagihan — Cek status pembayaran terakhir\n"
+
                 "⚙️ /pengaturan — Ubah marketplace & profit\n"
                 "🟢 /status — Cek status server\n"
                 "❓ /help — Tampilkan menu ini\n"
@@ -239,8 +242,9 @@ def register_handlers(bot):
                 "<i>(Hanya Rp 800-an per hari untuk menghemat waktumu!)</i>\n\n"
                 "🎁 <b>Coba Gratis (Free Trial)</b>\n"
                 "Ketik perintah /trial sekarang untuk mengaktifkan akses gratis selama 5 Hari!\n\n"
-                "👉 <b>Pendaftaran & Bantuan:</b>\n"
-                "Hubungi Admin: <b>@fianfi</b>\n\n"
+                "💳 <b>Aktivasi / Perpanjangan:</b>\n"
+                "Ketik /langganan untuk memilih paket & bayar via QRIS.\n"
+                "Bantuan Admin: <b>@fianfi</b>\n\n"
                 "<i>Catatan: Bot menggunakan sistem auto-cek web. Data stok bisa memiliki jeda keterlambatan beberapa menit dari website aslinya.</i>", 
                 parse_mode="HTML"
             )

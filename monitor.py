@@ -12,6 +12,7 @@ import telebot
 import config
 import database
 import commands
+import payments
 DATA_FILE = 'data_snapshot.json'
 
 app = Flask(__name__)
@@ -240,6 +241,7 @@ def run_scheduler():
     job()
     schedule.every(config.CHECK_INTERVAL).minutes.do(job)
     schedule.every().hour.do(check_expirations_job)
+    schedule.every().hour.do(lambda: payments.send_h3_expiration_reminders(bot))
     
     # Jadwalkan laporan mingguan tiap Senin jam 08:00
     def weekly_report_job():
@@ -263,6 +265,7 @@ def run_scheduler():
 
 if __name__ == "__main__":
     commands.register_handlers(bot)
+    payments.register_handlers(bot)
     
     # Start the background job
     t = threading.Thread(target=run_scheduler, daemon=True)
