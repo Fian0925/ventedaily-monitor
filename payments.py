@@ -790,6 +790,40 @@ def register_handlers(bot) -> None:
         except Exception as exc:
             bot.reply_to(message, f"❌ Gagal mengubah paket: {exc}")
 
+    @bot.message_handler(commands=["qrisdebug"])
+    def handle_qris_debug(message):
+        if not _is_admin_user(message.chat.id):
+            return
+        
+        raw = QRIS_STATIC_PAYLOAD or ""
+        clean = "".join(raw.split())
+        length = len(clean)
+        
+        if length == 0:
+            bot.reply_to(message, "⚠️ QRIS_STATIC_PAYLOAD kosong!")
+            return
+            
+        first_12 = clean[:12]
+        last_12 = clean[-12:]
+        starts_000201 = "Ya" if clean.startswith("000201") else "Tidak"
+        
+        try:
+            validate_static_qris(clean)
+            val_result = "VALID"
+        except Exception as e:
+            val_result = f"ERROR: {e}"
+            
+        reply = (
+            "🛠️ <b>QRIS DEBUG INFO</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━\n"
+            f"Panjang Payload (tanpa spasi): {length} karakter\n"
+            f"Awalan 000201: {starts_000201}\n"
+            f"12 Karakter Pertama: <code>{first_12}</code>\n"
+            f"12 Karakter Terakhir: <code>{last_12}</code>\n\n"
+            f"Validasi Format: <b>{val_result}</b>"
+        )
+        bot.reply_to(message, reply, parse_mode="HTML")
+
     @bot.callback_query_handler(func=lambda call: call.data.startswith("plan_toggle:"))
     def callback_plan_toggle(call):
         if not _is_admin_user(call.from_user.id):
