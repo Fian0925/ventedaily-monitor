@@ -80,8 +80,12 @@ def _parse_tlv(payload: str) -> List[Tuple[str, str]]:
     return out
 
 
+def _clean_qris_payload(payload: str) -> str:
+    return payload.strip().replace("\r", "").replace("\n", "")
+
+
 def validate_static_qris(payload: str) -> Dict[str, str]:
-    payload = "".join(payload.split())
+    payload = _clean_qris_payload(payload)
     items = _parse_tlv(payload)
     values = dict(items)
     if values.get("00") != "01":
@@ -102,7 +106,7 @@ def build_amount_qris(static_payload: str, amount: int) -> str:
     if amount > 10_000_000:
         raise ValueError("Nominal melebihi batas generator aplikasi.")
 
-    static_payload = "".join(static_payload.split())
+    static_payload = _clean_qris_payload(static_payload)
     validate_static_qris(static_payload)
     items = _parse_tlv(static_payload)
 
@@ -796,7 +800,7 @@ def register_handlers(bot) -> None:
             return
         
         raw = QRIS_STATIC_PAYLOAD or ""
-        clean = "".join(raw.split())
+        clean = _clean_qris_payload(raw)
         length = len(clean)
         
         if length == 0:
@@ -816,7 +820,7 @@ def register_handlers(bot) -> None:
         reply = (
             "🛠️ <b>QRIS DEBUG INFO</b>\n"
             "━━━━━━━━━━━━━━━━━━━━━\n"
-            f"Panjang Payload (tanpa spasi): {length} karakter\n"
+            f"Panjang Payload (setelah dibersihkan): {length} (Target: 196)\n"
             f"Awalan 000201: {starts_000201}\n"
             f"12 Karakter Pertama: <code>{first_12}</code>\n"
             f"12 Karakter Terakhir: <code>{last_12}</code>\n\n"
