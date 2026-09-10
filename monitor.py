@@ -1,5 +1,4 @@
 import requests
-from bs4 import BeautifulSoup
 import json
 import time
 import schedule
@@ -14,6 +13,11 @@ import database
 import commands
 import payments
 DATA_FILE = 'data_snapshot.json'
+
+API_HEADERS = {
+    "Accept": "application/json",
+    "User-Agent": "VentedailyMonitorBot/2.0",
+}
 
 app = Flask(__name__)
 bot = telebot.TeleBot(config.TELEGRAM_BOT_TOKEN)
@@ -47,69 +51,68 @@ def broadcast_telegram_message(message):
             print(f"Error sending to {u.get('chat_id')}: {e}")
 
 
+def _normalize_size(raw_size: str) -> str:
+    """Normalisasi ukuran dari API: 'Size L' -> 'L', 'All Size' -> 'ALL SIZE'."""
+    s = raw_size.strip()
+    # Hapus prefix "Size " jika ada
+    if s.lower().startswith("size "):
+        s = s[5:].strip()
+    return s.upper()
 
-def scrape_page(page):
-    url = f"{config.BASE_URL}?page={page}"
-    try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-    except requests.exceptions.RequestException as e:
-        print(f"Error fetching page {page}: {e}")
-        return None, False
 
-    soup = BeautifulSoup(response.text, 'html.parser')
-    table = soup.find('table')
-    if not table: return None, False
-        
-    tbody = table.find('tbody')
-    if not tbody: return None, False
-        
-    rows = tbody.find_all('tr')
-    if not rows: return [], False
-        
-    data = {}
-    for row in rows:
-        cols = row.find_all(['th', 'td'])
-        if len(cols) >= 4:
-            no = cols[0].get_text(strip=True)
-            nama = cols[1].get_text(strip=True)
-            stock = cols[2].get_text(strip=True)
-            harga = cols[3].get_text(strip=True)
-            
-            if not nama: continue
-            data[nama] = {"no": no, "stock": stock, "harga": harga}
-            
-    has_next = True
-    pagination_text = soup.find(string=re.compile(r'Showing \d+ to \d+ of \d+ entries'))
-    if pagination_text:
-        match = re.search(r'Showing (\d+) to (\d+) of (\d+) entries', pagination_text)
-        if match:
-            to_entry = int(match.group(2))
-            total_entry = int(match.group(3))
-            if to_entry >= total_entry: has_next = False
-    else:
-        has_next = len(data) >= 10
-        
-    return data, has_next
-
-def scrape_all():
-    all_data = {}
-    page = 1
+def fetch_all() -> dict | None:
+    """Ambil semua data stok dari API JSON ventedaily ERP."""
     from datetime import timezone, timedelta
-    print(f"[{datetime.now(timezone(timedelta(hours=7))).strftime('%Y-%m-%d %H:%M:%S WIB')}] Mulai scraping data...")
-    while True:
-        data, has_next = scrape_page(page)
-        if data is None: 
-            print(f"Error pada halaman {page}, membatalkan proses scrape agar tidak merusak data.")
-            return None
-        all_data.update(data)
-        if not has_next: break
-        page += 1
-        # Beri jeda lebih lama agar CPU Render (Free Tier) tidak 100% dan memblokir command lain
-        time.sleep(0.5)
-        
-    print(f"Selesai! Berhasil mengambil {len(all_data)} produk dari {page} halaman.")
-    return all_data
+    wib = timezone(timedelta(hours=7))
+    print(f"[{datetime.now(wib).strftime('%Y-%m-%d %H:%M:%S WIB')}] Mulai mengambil data dari API...")
+    try:
+        resp = requests.get(config.BASE_URL, headers=API_HEADERS, timeout=15)
+        resp.raise_for_status()
+        payload = resp.json()
+    except Exception as e:
+        print(f"Error mengambil data dari API: {e}")
+        return None
+
+    items = payload.get("items", [])
+    if not items:
+        print("Peringatan: API mengembalikan 0 item.")
+        return None
+
+    # Konversi ke format internal: key = "{product_name} - {color} SIZE {size}"
+    # Ini mempertahankan kompatibilitas dengan _group_products_by_variant di commands.py
+    data = {}
+    for item in items:
+        prod  = item.get("product_name", "").strip()
+        color = item.get("color", "").strip()
+        size  = _normalize_size(item.get("size", ""))
+        status_raw = item.get("status", "").strip()
+        harga_raw  = item.get("reseller_price", 0)
+
+        if not prod:
+            continue
+
+        # Status mapping ke format lama yang sudah dipahami commands.py
+        # Aman = banyak, Ready = limit, Menipis = limit 1-2, Habis = kosong
+        if status_raw.lower() == "habis":
+            status = "Habis"
+        elif status_raw.lower() == "menipis":
+            status = "Ready"   # Menipis dianggap Ready (limit), muncul dengan ikon ⚠️
+        else:
+            status = "Aman"    # Ready dari API = stok aman
+
+        harga = f"Rp {int(harga_raw):,}".replace(",", ".")
+
+        # Buat key unik per varian: "Nama Produk - Warna SIZE XL"
+        if color and color.lower() not in prod.lower():
+            key = f"{prod} - {color} SIZE {size}"
+        else:
+            key = f"{prod} SIZE {size}"
+
+        data[key] = {"stock": status, "harga": harga}
+
+    print(f"Selesai! Berhasil mengambil {len(data)} varian produk dari API.")
+    return data
+
 
 def compare_data(old_data, new_data):
     changes = []
@@ -154,18 +157,16 @@ def compare_data(old_data, new_data):
 
 def job():
     try:
-        new_data = scrape_all()
+        new_data = fetch_all()
         if not new_data: return
 
         if os.path.exists(DATA_FILE):
-            with open(DATA_FILE, 'r', encoding='utf-8') as f:
-                old_data = json.load(f)
-            
-            # Deteksi jika file masih menggunakan format lama (ID berupa angka)
-            if old_data and list(old_data.keys())[0].isdigit():
-                print("Format lama terdeteksi. Membuat ulang snapshot.")
+            try:
+                with open(DATA_FILE, 'r', encoding='utf-8') as f:
+                    old_data = json.load(f)
+            except Exception:
                 old_data = None
-                
+
             if old_data:
                 changes = compare_data(old_data, new_data)
                 
@@ -178,9 +179,9 @@ def job():
                     if len(changes) > 10:
                         broadcast_telegram_message(f"ℹ️ <i>Dan {len(changes) - 10} perubahan lainnya tidak ditampilkan...</i>")
             else:
-                send_admin_message("🤖 <b>Format Data Diperbarui!</b>\nBerhasil mengambil snapshot dengan format baru (berdasarkan Nama Produk). Sistem siap memonitor perubahan.")
+                send_admin_message("🤖 <b>Snapshot baru berhasil diambil!</b>\nSistem siap memonitor perubahan stok dari API ERP ventedaily.")
         else:
-            send_admin_message("🤖 <b>Bot Monitoring Ventedaily Aktif!</b>\nBerhasil mengambil snapshot awal. Sistem akan mulai memonitor perubahan.")
+            send_admin_message("🤖 <b>Bot Monitoring Ventedaily Aktif!</b>\nBerhasil mengambil snapshot awal dari API ERP. Sistem akan mulai memonitor perubahan.")
             
         temp_file = f"{DATA_FILE}.tmp"
         with open(temp_file, 'w', encoding='utf-8') as f:

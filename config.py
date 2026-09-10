@@ -9,7 +9,7 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://yjfodwmoouhmajdollku.supa
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "GANTI_DENGAN_KUNCI_SUPABASE")
 
 # Konfigurasi Scraping
-BASE_URL = "https://pos.ventedaily.net/product-stock"
+BASE_URL = "https://erp.ventedaily.net/api/public/stock"
 PER_PAGE = 200
 
 # Interval Pengecekan (dalam menit)
