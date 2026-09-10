@@ -208,9 +208,9 @@ def register_handlers(bot):
                 "   └ Contoh 2: /perubahan restock 06-07-2026 semua\n\n"
                 "📊 /laporan\n"
                 "   └ Laporan mingguan produk baru & restock\n\n"
-                "👤 /profil — Cek sisa hari langganan & referral\n"                "💳 /langganan — Pilih / perpanjang paket via QRIS\n"
-                "📄 /tagihan — Cek status pembayaran terakhir\n"
-
+                "👤 /profil — Cek sisa hari langganan & referral\n"
+                "💳 /langganan — Pilih / perpanjang paket via QRIS\n"
+                "📄 /tagihan — Cek status pembayaran terakhir\n\n"
                 "⚙️ /pengaturan — Ubah marketplace & profit\n"
                 "🟢 /status — Cek status server\n"
                 "❓ /help — Tampilkan menu ini\n"
