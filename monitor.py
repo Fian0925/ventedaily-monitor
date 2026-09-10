@@ -61,27 +61,50 @@ def _normalize_size(raw_size: str) -> str:
 
 
 def fetch_all() -> dict | None:
-    """Ambil semua data stok dari API JSON ventedaily ERP."""
+    """Ambil semua data stok dari API JSON ventedaily ERP (dengan paginasi)."""
     from datetime import timezone, timedelta
     wib = timezone(timedelta(hours=7))
     print(f"[{datetime.now(wib).strftime('%Y-%m-%d %H:%M:%S WIB')}] Mulai mengambil data dari API...")
-    try:
-        resp = requests.get(config.BASE_URL, headers=API_HEADERS, timeout=15)
-        resp.raise_for_status()
-        payload = resp.json()
-    except Exception as e:
-        print(f"Error mengambil data dari API: {e}")
-        return None
 
-    items = payload.get("items", [])
-    if not items:
+    all_items = []
+    page = 1
+
+    while True:
+        try:
+            resp = requests.get(
+                config.BASE_URL,
+                headers=API_HEADERS,
+                params={"page": page, "limit": 100},
+                timeout=15
+            )
+            resp.raise_for_status()
+            payload = resp.json()
+        except Exception as e:
+            print(f"Error mengambil halaman {page}: {e}")
+            # Kalau sudah dapat sebagian data, jangan buang — batalkan saja
+            if not all_items:
+                return None
+            break
+
+        items = payload.get("items", [])
+        all_items.extend(items)
+
+        total_pages = payload.get("pages", 1)
+        print(f"  Halaman {page}/{total_pages} — {len(items)} item")
+
+        if page >= total_pages:
+            break
+        page += 1
+        time.sleep(0.3)  # Jeda kecil agar tidak membebani server ventedaily
+
+    if not all_items:
         print("Peringatan: API mengembalikan 0 item.")
         return None
 
     # Konversi ke format internal: key = "{product_name} - {color} SIZE {size}"
     # Ini mempertahankan kompatibilitas dengan _group_products_by_variant di commands.py
     data = {}
-    for item in items:
+    for item in all_items:
         prod  = item.get("product_name", "").strip()
         color = item.get("color", "").strip()
         size  = _normalize_size(item.get("size", ""))
@@ -110,7 +133,7 @@ def fetch_all() -> dict | None:
 
         data[key] = {"stock": status, "harga": harga}
 
-    print(f"Selesai! Berhasil mengambil {len(data)} varian produk dari API.")
+    print(f"Selesai! Total {len(data)} varian produk dari {page} halaman.")
     return data
 
 
