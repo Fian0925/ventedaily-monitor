@@ -3,7 +3,6 @@ import json
 import time
 import schedule
 import os
-import re
 from datetime import datetime
 import threading
 from flask import Flask, send_file, make_response
@@ -47,6 +46,7 @@ def broadcast_telegram_message(message):
     for u in users:
         try:
             bot.send_message(chat_id=u['chat_id'], text=message, parse_mode="HTML")
+            time.sleep(0.05)  # Rate limit: max ~20 msg/sec untuk hindari 429
         except Exception as e:
             print(f"Error sending to {u.get('chat_id')}: {e}")
 
@@ -74,17 +74,18 @@ def fetch_all() -> dict | None:
             resp = requests.get(
                 config.BASE_URL,
                 headers=API_HEADERS,
-                params={"page": page, "limit": 100},
+                params={"page": page, "limit": config.PER_PAGE},
                 timeout=15
             )
             resp.raise_for_status()
             payload = resp.json()
         except Exception as e:
+            # KRITIS: Jangan simpan data parsial!
+            # Data sebagian akan membuat compare_data() menganggap
+            # produk sisanya "dihapus" dan mengirim notifikasi palsu.
             print(f"Error mengambil halaman {page}: {e}")
-            # Kalau sudah dapat sebagian data, jangan buang — batalkan saja
-            if not all_items:
-                return None
-            break
+            print("Membatalkan seluruh siklus fetch agar data tidak rusak.")
+            return None
 
         items = payload.get("items", [])
         all_items.extend(items)
@@ -139,6 +140,9 @@ def fetch_all() -> dict | None:
 
 def compare_data(old_data, new_data):
     changes = []
+    MAX_LOG_EVENTS = 50  # Batasi agar tidak freeze saat ratusan produk berubah
+    logged = 0
+    
     for prod_nama, new_item in new_data.items():
         if prod_nama not in old_data:
             changes.append(
@@ -146,7 +150,9 @@ def compare_data(old_data, new_data):
                 f"🏷️ {prod_nama}\n"
                 f"Stok: {new_item['stock']} | Harga: {new_item['harga']}"
             )
-            database.log_event(prod_nama, 'new', new_item['stock'], new_item['harga'])
+            if logged < MAX_LOG_EVENTS:
+                database.log_event(prod_nama, 'new', new_item['stock'], new_item['harga'])
+                logged += 1
         else:
             old_item = old_data[prod_nama]
             prod_changes = []
@@ -157,15 +163,21 @@ def compare_data(old_data, new_data):
                 icon = "🔄"
                 if "habis" in old_st and ("ready" in new_st or "aman" in new_st): 
                     icon = "✔️"
-                    database.log_event(prod_nama, 'restock', new_item['stock'], new_item['harga'])
+                    if logged < MAX_LOG_EVENTS:
+                        database.log_event(prod_nama, 'restock', new_item['stock'], new_item['harga'])
+                        logged += 1
                 elif ("ready" in old_st or "aman" in old_st) and "habis" in new_st: 
                     icon = "❌"
-                    database.log_event(prod_nama, 'habis', old_item['stock'], new_item['harga'])
+                    if logged < MAX_LOG_EVENTS:
+                        database.log_event(prod_nama, 'habis', old_item['stock'], new_item['harga'])
+                        logged += 1
                 prod_changes.append(f"{icon} Stok: {old_item['stock']} ➡️ <b>{new_item['stock']}</b>")
                 
             if old_item['harga'] != new_item['harga']:
                 prod_changes.append(f"💰 Harga: {old_item['harga']} ➡️ {new_item['harga']}")
-                database.log_event(prod_nama, 'price_change', old_item['harga'], new_item['harga'])
+                if logged < MAX_LOG_EVENTS:
+                    database.log_event(prod_nama, 'price_change', old_item['harga'], new_item['harga'])
+                    logged += 1
                 
             if prod_changes:
                 msg = f"⚠️ <b>PERUBAHAN DATA</b>\n🏷️ {prod_nama}\n" + "\n".join(prod_changes)

@@ -22,14 +22,6 @@ def _load_snapshot():
         print(f"Error loading snapshot: {e}")
         return None
         
-    # Handle format lama (key numerik)
-    if data and list(data.keys())[0].isdigit():
-        normalized = {}
-        for k, v in data.items():
-            nama = v.get('nama', '')
-            if nama:
-                normalized[nama] = {"stock": v.get('stock', ''), "harga": v.get('harga', '')}
-        return normalized
     return data
 
 
@@ -69,6 +61,8 @@ def _group_products_by_variant(products):
     Kelompokkan produk berdasarkan varian (nama tanpa SIZE) dan warna.
     Input: list of (nama, {stock, harga})
     Output: dict {base_name: {warna: {size: {stock, harga}}}}
+    
+    Format key dari API baru: "Nama Produk - Warna SIZE XL"
     """
     groups = defaultdict(lambda: defaultdict(dict))
     price_map = {}
@@ -84,26 +78,14 @@ def _group_products_by_variant(products):
             size = "-"
             base = nama.strip()
 
-        # Pisahkan warna dari base name
-        # Coba deteksi warna dari kata-kata terakhir
-        color_keywords = [
-            'Dusty Pink', 'Baby Pink', 'Baby Blue', 'Cool Mint', 'Deep Red',
-            'Dark Grey', 'Light Grey', 'Army Green', 'Soft Pink', 'Hot Pink',
-            'Dusty Purple', 'Cream Gold',
-            'Choco', 'Purple', 'Maroon', 'Navy', 'Cream', 'White', 'Black',
-            'Grey', 'Green', 'Blue', 'Red', 'Pink', 'Brown', 'Orange',
-            'Mustard', 'Olive', 'Tosca', 'Sage', 'Lilac', 'Mocca',
-            'Charcoal', 'Lavender', 'Burgundy', 'Khaki', 'Peach', 'Coral',
-            'Caramel', 'Coffee', 'Denim', 'Plum'
-        ]
-
+        # Parse warna dari format key API: "Nama Produk - Warna"
+        # Separator " - " digunakan oleh monitor.py saat membuat key
         warna = "-"
         variant_base = base
-        for color in color_keywords:
-            if base.lower().endswith(color.lower()):
-                warna = color
-                variant_base = base[:-(len(color))].strip()
-                break
+        if " - " in base:
+            parts = base.rsplit(" - ", 1)
+            variant_base = parts[0].strip()
+            warna = parts[1].strip() if parts[1].strip() else "-"
 
         groups[variant_base][warna][size] = info['stock']
         price_map[variant_base] = info['harga']
@@ -224,6 +206,13 @@ def register_handlers(bot):
                     "/check [chat_id]\n"
                     "/users\n"
                     "/broadcast [pesan]\n"
+                    "\n💳 <b>ADMIN PEMBAYARAN:</b>\n"
+                    "/payments — Lihat pembayaran menunggu verifikasi\n"
+                    "/paketadmin — Kelola paket langganan\n"
+                    "/paketadd kode|Nama|hari|harga\n"
+                    "/paketedit kode|Nama|hari|harga\n"
+                    "/paketon [kode] / /paketoff [kode]\n"
+                    "/qrisdebug — Diagnostik QRIS\n"
                 )
             bot.reply_to(message, help_text, parse_mode="HTML")
         else:
@@ -245,7 +234,7 @@ def register_handlers(bot):
                 "💳 <b>Aktivasi / Perpanjangan:</b>\n"
                 "Ketik /langganan untuk memilih paket & bayar via QRIS.\n"
                 "Bantuan Admin: <b>@fianfi</b>\n\n"
-                "<i>Catatan: Bot menggunakan sistem auto-cek web. Data stok bisa memiliki jeda keterlambatan beberapa menit dari website aslinya.</i>", 
+                "<i>Catatan: Bot terhubung langsung ke sistem Ventedaily. Data stok bisa memiliki jeda beberapa menit.</i>", 
                 parse_mode="HTML"
             )
     # =====================
@@ -256,8 +245,12 @@ def register_handlers(bot):
         chat_id = message.chat.id
         settings = database.get_user_settings(chat_id)
         
-        # Cek apakah user benar-benar baru (valid_until masih default)
-        if settings.get('valid_until') != '2000-01-01T00:00:00Z':
+        # Cek apakah user benar-benar baru:
+        # - valid_until masih default (belum pernah diaktifkan)
+        # - plan_type masih kosong (belum pernah punya akses / di-suspend)
+        plan_type = settings.get('plan_type', '')
+        has_used = settings.get('valid_until') != '2000-01-01T00:00:00Z' or plan_type != ''
+        if has_used:
             bot.reply_to(message, "❌ <b>Gagal!</b> Kamu sudah pernah menikmati Free Trial atau sudah berlangganan sebelumnya.", parse_mode="HTML")
             return
             
