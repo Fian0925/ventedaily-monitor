@@ -51,7 +51,7 @@ def broadcast_telegram_message(message):
             print(f"Error sending to {u.get('chat_id')}: {e}")
 
 
-def _normalize_size(raw_size: str) -> str:
+def _normalize_size(raw_size):
     """Normalisasi ukuran dari API: 'Size L' -> 'L', 'All Size' -> 'ALL SIZE'."""
     s = raw_size.strip()
     # Hapus prefix "Size " jika ada
@@ -60,7 +60,7 @@ def _normalize_size(raw_size: str) -> str:
     return s.upper()
 
 
-def fetch_all() -> dict | None:
+def fetch_all():
     """Ambil semua data stok dari API JSON ventedaily ERP (dengan paginasi)."""
     from datetime import timezone, timedelta
     wib = timezone(timedelta(hours=7))
@@ -193,7 +193,9 @@ def compare_data(old_data, new_data):
 def job():
     try:
         new_data = fetch_all()
-        if not new_data: return
+        if not new_data:
+            print("fetch_all() returned None, skipping this cycle.")
+            return
 
         if os.path.exists(DATA_FILE):
             try:
@@ -241,6 +243,10 @@ def job():
             
     except Exception as e:
         print(f"Error during job execution: {e}")
+        try:
+            send_admin_message(f"⚠️ <b>ERROR saat job():</b>\n<code>{e}</code>")
+        except:
+            pass
 
 def check_expirations_job():
     users = database.get_all_users()
@@ -279,7 +285,20 @@ def check_expirations_job():
                 except: pass
 
 def run_scheduler():
+    import sys
     print(f"=== Ventedaily Stock Monitor Started ===")
+    print(f"Python {sys.version}")
+    
+    # Kirim diagnostic ke admin saat bot pertama kali start
+    try:
+        send_admin_message(
+            f"🤖 <b>Bot Starting...</b>\n"
+            f"Python: {sys.version.split()[0]}\n"
+            f"API: {config.BASE_URL}\n"
+            f"Interval: {config.CHECK_INTERVAL} menit"
+        )
+    except Exception as e:
+        print(f"Warning: gagal kirim startup msg: {e}")
     
     # Warmup koneksi Supabase sebelum mulai scraping
     # Ini agar request SSL pertama tidak lambat saat user pertama kali pakai bot

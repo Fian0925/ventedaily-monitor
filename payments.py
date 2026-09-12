@@ -289,7 +289,7 @@ def get_payment(invoice: str) -> Optional[dict]:
     return rows[0] if rows else None
 
 
-def latest_open_payment(chat_id: int | str) -> Optional[dict]:
+def latest_open_payment(chat_id) -> Optional[dict]:
     cid = requests.utils.quote(str(chat_id), safe="")
     rows = _get(
         "payment_requests?chat_id=eq."
@@ -300,7 +300,7 @@ def latest_open_payment(chat_id: int | str) -> Optional[dict]:
     return rows[0] if rows else None
 
 
-def latest_payment(chat_id: int | str) -> Optional[dict]:
+def latest_payment(chat_id) -> Optional[dict]:
     cid = requests.utils.quote(str(chat_id), safe="")
     rows = _get(
         "payment_requests?chat_id=eq."
@@ -428,7 +428,7 @@ def _format_rupiah(value: int) -> str:
     return "Rp{:,.0f}".format(value).replace(",", ".")
 
 
-def _subscription_info(chat_id: int | str) -> Tuple[dict, datetime, bool]:
+def _subscription_info(chat_id) -> Tuple[dict, datetime, bool]:
     settings = database.get_user_settings(chat_id)
     raw = settings.get("valid_until", "2000-01-01T00:00:00Z")
     try:
@@ -645,7 +645,7 @@ def _set_command_menu(bot) -> None:
         print(f"Warning set_my_commands: {exc}")
 
 
-def _is_admin_user(user_id: int | str) -> bool:
+def _is_admin_user(user_id) -> bool:
     return str(user_id) == ADMIN_CHAT_ID
 
 
