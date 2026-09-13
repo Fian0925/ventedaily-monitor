@@ -191,32 +191,39 @@ def compare_data(old_data, new_data):
 
 
 def job():
+    from datetime import timezone, timedelta
+    wib = timezone(timedelta(hours=7))
+    now_str = datetime.now(wib).strftime('%H:%M:%S WIB')
+    
     try:
         new_data = fetch_all()
         if not new_data:
-            print("fetch_all() returned None, skipping this cycle.")
+            msg = f"⚠️ [{now_str}] fetch_all() gagal — return None. Siklus dilewati."
+            print(msg)
+            send_admin_message(msg)
             return
 
         if os.path.exists(DATA_FILE):
             try:
                 with open(DATA_FILE, 'r', encoding='utf-8') as f:
                     old_data = json.load(f)
-            except Exception:
+            except Exception as e:
                 old_data = None
+                send_admin_message(f"⚠️ [{now_str}] Gagal baca snapshot: {e}")
 
             # Deteksi format lama (key numerik atau value berisi field 'nama')
-            # Format lama berasal dari era scraping HTML dan tidak kompatibel
             if old_data:
                 sample_key = next(iter(old_data), "")
                 sample_val = old_data.get(sample_key, {})
                 is_old_format = sample_key.isdigit() or "nama" in sample_val
                 
                 if is_old_format:
-                    print("Format snapshot lama terdeteksi. Membuat snapshot baru tanpa membandingkan.")
+                    print("Format snapshot lama terdeteksi. Membuat snapshot baru.")
                     send_admin_message(
-                        "🤖 <b>Migrasi Data Berhasil!</b>\n"
-                        f"Snapshot lama ({len(old_data)} key format lama) digantikan dengan data API baru ({len(new_data)} varian).\n"
-                        "Sistem akan mulai memonitor perubahan dari siklus berikutnya."
+                        f"🔄 [{now_str}] <b>Migrasi Data</b>\n"
+                        f"Snapshot lama: {len(old_data)} key (format lama)\n"
+                        f"Data API baru: {len(new_data)} varian\n"
+                        f"Menyimpan snapshot baru. Perbandingan dimulai siklus berikutnya."
                     )
                     old_data = None
 
@@ -231,10 +238,22 @@ def job():
                         
                     if len(changes) > 10:
                         broadcast_telegram_message(f"ℹ️ <i>Dan {len(changes) - 10} perubahan lainnya tidak ditampilkan...</i>")
+                    
+                    send_admin_message(f"📊 [{now_str}] Job selesai: {len(changes)} perubahan terdeteksi, {max_msgs} dikirim.")
+                else:
+                    print(f"[{now_str}] Job selesai: 0 perubahan. old={len(old_data)} new={len(new_data)}")
             else:
-                send_admin_message("🤖 <b>Snapshot baru berhasil diambil!</b>\nSistem siap memonitor perubahan stok dari API ERP ventedaily.")
+                send_admin_message(
+                    f"🤖 [{now_str}] <b>Snapshot baru disimpan</b>\n"
+                    f"Total: {len(new_data)} varian produk.\n"
+                    f"Perbandingan dimulai siklus berikutnya."
+                )
         else:
-            send_admin_message("🤖 <b>Bot Monitoring Ventedaily Aktif!</b>\nBerhasil mengambil snapshot awal dari API ERP. Sistem akan mulai memonitor perubahan.")
+            send_admin_message(
+                f"🤖 [{now_str}] <b>Snapshot awal dibuat</b>\n"
+                f"Total: {len(new_data)} varian produk.\n"
+                f"Monitoring dimulai siklus berikutnya."
+            )
             
         temp_file = f"{DATA_FILE}.tmp"
         with open(temp_file, 'w', encoding='utf-8') as f:
@@ -243,8 +262,10 @@ def job():
             
     except Exception as e:
         print(f"Error during job execution: {e}")
+        import traceback
+        traceback.print_exc()
         try:
-            send_admin_message(f"⚠️ <b>ERROR saat job():</b>\n<code>{e}</code>")
+            send_admin_message(f"⚠️ [{now_str}] <b>ERROR job():</b>\n<code>{e}</code>")
         except:
             pass
 
