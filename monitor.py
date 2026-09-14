@@ -241,7 +241,7 @@ def job():
                     
                     send_admin_message(f"📊 [{now_str}] Job selesai: {len(changes)} perubahan terdeteksi, {max_msgs} dikirim.")
                 else:
-                    print(f"[{now_str}] Job selesai: 0 perubahan. old={len(old_data)} new={len(new_data)}")
+                    send_admin_message(f"✅ [{now_str}] Job OK: 0 perubahan. Snapshot: {len(old_data)}→{len(new_data)}")
             else:
                 send_admin_message(
                     f"🤖 [{now_str}] <b>Snapshot baru disimpan</b>\n"
