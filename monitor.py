@@ -60,72 +60,102 @@ def _normalize_size(raw_size):
     return s.upper()
 
 
-def fetch_all():
-    """Ambil semua data stok dari API JSON ventedaily ERP (dengan paginasi)."""
-    from datetime import timezone, timedelta
-    wib = timezone(timedelta(hours=7))
-    print(f"[{datetime.now(wib).strftime('%Y-%m-%d %H:%M:%S WIB')}] Mulai mengambil data dari API...")
-
+def _fetch_paginated(url):
+    """Helper: fetch semua halaman dari endpoint yang diberi URL, return list items."""
     all_items = []
     page = 1
-
     while True:
         try:
-            resp = requests.get(
-                config.BASE_URL,
-                headers=API_HEADERS,
-                params={"page": page, "limit": config.PER_PAGE},
-                timeout=15
-            )
+            resp = requests.get(url, headers=API_HEADERS,
+                                params={"page": page, "limit": config.PER_PAGE},
+                                timeout=15)
             resp.raise_for_status()
             payload = resp.json()
         except Exception as e:
-            # KRITIS: Jangan simpan data parsial!
-            # Data sebagian akan membuat compare_data() menganggap
-            # produk sisanya "dihapus" dan mengirim notifikasi palsu.
-            print(f"Error mengambil halaman {page}: {e}")
-            print("Membatalkan seluruh siklus fetch agar data tidak rusak.")
-            return None
-
+            print(f"Error mengambil halaman {page} dari {url}: {e}")
+            return None  # Return None agar caller bisa batalkan siklus
         items = payload.get("items", [])
         all_items.extend(items)
-
         total_pages = payload.get("pages", 1)
-        print(f"  Halaman {page}/{total_pages} — {len(items)} item")
-
+        print(f"  [{url.split('/')[-1]}] Halaman {page}/{total_pages} — {len(items)} item")
         if page >= total_pages:
             break
         page += 1
-        time.sleep(0.3)  # Jeda kecil agar tidak membebani server ventedaily
+        time.sleep(0.3)
+    return all_items
 
-    if not all_items:
-        print("Peringatan: API mengembalikan 0 item.")
+
+def fetch_all():
+    """Ambil data stok dari API Ventedaily ERP.
+    
+    Strategi dual-source:
+    - Status stok  → /api/public/catalog  (update real-time, sama dengan website)
+    - Harga reseller → /api/public/stock   (harga reseller asli, lebih akurat)
+    """
+    from datetime import timezone, timedelta
+    wib = timezone(timedelta(hours=7))
+    print(f"[{datetime.now(wib).strftime('%Y-%m-%d %H:%M:%S WIB')}] Mulai fetch data...")
+
+    # 1. Ambil status dari catalog (sumber utama, update real-time)
+    catalog_url = "https://erp.ventedaily.net/api/public/catalog"
+    catalog_items = _fetch_paginated(catalog_url)
+    if catalog_items is None:
+        print("Gagal fetch catalog. Membatalkan siklus.")
         return None
 
-    # Konversi ke format internal
-    # /api/public/catalog mengembalikan:
-    #   name: "Nama Produk Warna SIZE XL" (sudah lengkap)
-    #   status: "Aman" / "Ready" / "Habis" (sudah final)
-    #   selling_price: harga jual (integer)
+    # 2. Ambil harga reseller dari stock (akurasi harga)
+    stock_url = "https://erp.ventedaily.net/api/public/stock"
+    stock_items = _fetch_paginated(stock_url)
+
+    # Build lookup harga reseller: "product_name color" → reseller_price
+    price_lookup = {}
+    if stock_items:
+        for s in stock_items:
+            pn = s.get("product_name", "").replace("[DEFECT]", "").replace("(Defect)", "").strip()
+            color = s.get("color", "").strip()
+            price_key = f"{pn.lower()} {color.lower()}".strip()
+            reseller = s.get("reseller_price", 0)
+            # Prioritaskan harga tertinggi (produk normal, bukan defect)
+            if price_key not in price_lookup or reseller > price_lookup[price_key]:
+                price_lookup[price_key] = reseller
+
+    if not catalog_items:
+        print("Peringatan: catalog mengembalikan 0 item.")
+        return None
+
+    # 3. Gabungkan: status dari catalog + harga dari stock lookup
     data = {}
-    for item in all_items:
+    price_miss = 0
+    for item in catalog_items:
         nama = item.get("name", "").strip()
         status = item.get("status", "").strip()
-        harga_raw = item.get("selling_price", 0)
+        selling_price = item.get("selling_price", 0)
 
         if not nama:
             continue
 
-        # Status sudah dalam format final dari API catalog
-        # Aman = stok banyak, Ready = limit, Habis = kosong
         if status not in ("Aman", "Ready", "Habis"):
-            status = "Habis"  # default fallback
+            status = "Habis"
 
-        harga = f"Rp {int(harga_raw):,}".replace(",", ".")
+        # Cari harga reseller dari stock lookup
+        # Nama catalog: "Abimaya Dad Blue SIZE Size L" → cari "abimaya dad blue"
+        # Strip SIZE suffix untuk matching
+        import re as _re
+        name_for_lookup = _re.sub(r'\s+SIZE\s+.*$', '', nama, flags=_re.IGNORECASE).strip().lower()
+        reseller_price = price_lookup.get(name_for_lookup, 0)
+
+        if reseller_price > 0:
+            harga = f"Rp {reseller_price:,}".replace(",", ".")
+        else:
+            # Fallback ke selling_price dari catalog
+            harga = f"Rp {selling_price:,}".replace(",", ".")
+            price_miss += 1
 
         data[nama] = {"stock": status, "harga": harga}
 
-    print(f"Selesai! Total {len(data)} varian produk dari {page} halaman.")
+    if price_miss > 0:
+        print(f"  Info: {price_miss} produk pakai harga fallback dari catalog (tidak ditemukan di stock)")
+    print(f"Selesai! Total {len(data)} varian dari catalog, {len(price_lookup)} harga reseller dari stock.")
     return data
 
 
