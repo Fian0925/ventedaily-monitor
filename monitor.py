@@ -102,37 +102,28 @@ def fetch_all():
         print("Peringatan: API mengembalikan 0 item.")
         return None
 
-    # Konversi ke format internal: key = "{product_name} - {color} SIZE {size}"
-    # Ini mempertahankan kompatibilitas dengan _group_products_by_variant di commands.py
+    # Konversi ke format internal
+    # /api/public/catalog mengembalikan:
+    #   name: "Nama Produk Warna SIZE XL" (sudah lengkap)
+    #   status: "Aman" / "Ready" / "Habis" (sudah final)
+    #   selling_price: harga jual (integer)
     data = {}
     for item in all_items:
-        prod  = item.get("product_name", "").strip()
-        color = item.get("color", "").strip()
-        size  = _normalize_size(item.get("size", ""))
-        status_raw = item.get("status", "").strip()
-        harga_raw  = item.get("reseller_price", 0)
+        nama = item.get("name", "").strip()
+        status = item.get("status", "").strip()
+        harga_raw = item.get("selling_price", 0)
 
-        if not prod:
+        if not nama:
             continue
 
-        # Status mapping ke format lama yang sudah dipahami commands.py
-        # Aman = banyak, Ready = limit, Menipis = limit 1-2, Habis = kosong
-        if status_raw.lower() == "habis":
-            status = "Habis"
-        elif status_raw.lower() == "menipis":
-            status = "Ready"   # Menipis dianggap Ready (limit), muncul dengan ikon ⚠️
-        else:
-            status = "Aman"    # Ready dari API = stok aman
+        # Status sudah dalam format final dari API catalog
+        # Aman = stok banyak, Ready = limit, Habis = kosong
+        if status not in ("Aman", "Ready", "Habis"):
+            status = "Habis"  # default fallback
 
         harga = f"Rp {int(harga_raw):,}".replace(",", ".")
 
-        # Buat key unik per varian: "Nama Produk - Warna SIZE XL"
-        if color and color.lower() not in prod.lower():
-            key = f"{prod} - {color} SIZE {size}"
-        else:
-            key = f"{prod} SIZE {size}"
-
-        data[key] = {"stock": status, "harga": harga}
+        data[nama] = {"stock": status, "harga": harga}
 
     print(f"Selesai! Total {len(data)} varian produk dari {page} halaman.")
     return data

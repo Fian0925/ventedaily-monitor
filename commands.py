@@ -67,7 +67,9 @@ def _group_products_by_variant(products):
     groups = defaultdict(lambda: defaultdict(dict))
     price_map = {}
 
-    size_pattern = re.compile(r'\s+SIZE\s+(X{0,3}S|X{0,3}L|M|ALL\s*SIZE|FREE\s*SIZE)\s*$', re.IGNORECASE)
+    # Match SIZE patterns dari API catalog:
+    # "SIZE Size L", "SIZE Size XL", "SIZE All Size", "SIZE L", "SIZE XL" dll
+    size_pattern = re.compile(r'\s+SIZE\s+(?:Size\s+)?(X{0,3}S|X{0,3}L|M|ALL\s*SIZE|FREE\s*SIZE)\s*$', re.IGNORECASE)
 
     for nama, info in products:
         size_match = size_pattern.search(nama)
@@ -78,14 +80,29 @@ def _group_products_by_variant(products):
             size = "-"
             base = nama.strip()
 
-        # Parse warna dari format key API: "Nama Produk - Warna"
-        # Separator " - " digunakan oleh monitor.py saat membuat key
+        # Parse warna dari name catalog: "Nama Produk Warna"
+        # Warna ada di kata terakhir sebelum SIZE, tanpa separator
+        # Contoh: "(Couple) Abimaya Dad Blue" → base="Abimaya Dad", warna="Blue"
+        color_keywords = [
+            'Dusty Pink', 'Baby Pink', 'Baby Blue', 'Cool Mint', 'Deep Red',
+            'Dark Grey', 'Light Grey', 'Army Green', 'Soft Pink', 'Hot Pink',
+            'Dusty Purple', 'Cream Gold', 'Dark Brown', 'Dark Choco',
+            'Idul Fitri', 'Light Brown',
+            'Choco', 'Purple', 'Maroon', 'Navy', 'Cream', 'White', 'Black',
+            'Grey', 'Green', 'Blue', 'Red', 'Pink', 'Brown', 'Orange',
+            'Mustard', 'Olive', 'Tosca', 'Sage', 'Lilac', 'Mocca',
+            'Charcoal', 'Lavender', 'Burgundy', 'Khaki', 'Peach', 'Coral',
+            'Caramel', 'Coffee', 'Denim', 'Plum', 'Hazelnut', 'Espresso',
+            'Coksu', 'Mint', 'Milo',
+        ]
+
         warna = "-"
         variant_base = base
-        if " - " in base:
-            parts = base.rsplit(" - ", 1)
-            variant_base = parts[0].strip()
-            warna = parts[1].strip() if parts[1].strip() else "-"
+        for color in color_keywords:
+            if base.lower().endswith(color.lower()):
+                warna = color
+                variant_base = base[:-(len(color))].strip()
+                break
 
         groups[variant_base][warna][size] = info['stock']
         price_map[variant_base] = info['harga']

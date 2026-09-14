@@ -8,9 +8,9 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "457147602")
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://yjfodwmoouhmajdollku.supabase.co")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "GANTI_DENGAN_KUNCI_SUPABASE")
 
-# Konfigurasi Scraping
-BASE_URL = "https://erp.ventedaily.net/api/public/stock"
-PER_PAGE = 200
+# Konfigurasi API Ventedaily
+BASE_URL = "https://erp.ventedaily.net/api/public/catalog"
+PER_PAGE = 100
 
 # Interval Pengecekan (dalam menit)
 CHECK_INTERVAL = 5
