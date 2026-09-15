@@ -224,7 +224,7 @@ def job():
     from datetime import timezone, timedelta
     wib = timezone(timedelta(hours=7))
     now_str = datetime.now(wib).strftime('%H:%M:%S WIB')
-    
+
     try:
         new_data = fetch_all()
         if not new_data:
@@ -233,63 +233,51 @@ def job():
             send_admin_message(msg)
             return
 
-        if os.path.exists(DATA_FILE):
-            try:
-                with open(DATA_FILE, 'r', encoding='utf-8') as f:
-                    old_data = json.load(f)
-            except Exception as e:
-                old_data = None
-                send_admin_message(f"⚠️ [{now_str}] Gagal baca snapshot: {e}")
+        # Load snapshot dari Supabase (permanen, tidak hilang saat Render restart)
+        old_data = database.load_snapshot()
 
-            # Deteksi format lama (key numerik atau value berisi field 'nama')
-            if old_data:
-                sample_key = next(iter(old_data), "")
-                sample_val = old_data.get(sample_key, {})
-                is_old_format = sample_key.isdigit() or "nama" in sample_val
-                
-                if is_old_format:
-                    print("Format snapshot lama terdeteksi. Membuat snapshot baru.")
-                    send_admin_message(
-                        f"🔄 [{now_str}] <b>Migrasi Data</b>\n"
-                        f"Snapshot lama: {len(old_data)} key (format lama)\n"
-                        f"Data API baru: {len(new_data)} varian\n"
-                        f"Menyimpan snapshot baru. Perbandingan dimulai siklus berikutnya."
-                    )
-                    old_data = None
-
-            if old_data:
-                changes = compare_data(old_data, new_data)
-                
-                if changes:
-                    max_msgs = min(len(changes), 10)
-                    for msg in changes[:max_msgs]:
-                        broadcast_telegram_message(msg)
-                        time.sleep(1)
-                        
-                    if len(changes) > 10:
-                        broadcast_telegram_message(f"ℹ️ <i>Dan {len(changes) - 10} perubahan lainnya tidak ditampilkan...</i>")
-                    
-                    send_admin_message(f"📊 [{now_str}] Job selesai: {len(changes)} perubahan terdeteksi, {max_msgs} dikirim.")
-                else:
-                    send_admin_message(f"✅ [{now_str}] Job OK: 0 perubahan. Snapshot: {len(old_data)}→{len(new_data)}")
-            else:
+        # Deteksi format lama (key numerik atau value berisi field 'nama')
+        if old_data:
+            sample_key = next(iter(old_data), "")
+            sample_val = old_data.get(sample_key, {})
+            is_old_format = sample_key.isdigit() or "nama" in sample_val
+            if is_old_format:
+                print("Format snapshot lama terdeteksi. Reset snapshot.")
                 send_admin_message(
-                    f"🤖 [{now_str}] <b>Snapshot baru disimpan</b>\n"
-                    f"Total: {len(new_data)} varian produk.\n"
+                    f"🔄 [{now_str}] <b>Migrasi Data</b>\n"
+                    f"Snapshot lama: {len(old_data)} key (format lama)\n"
+                    f"Data API baru: {len(new_data)} varian\n"
                     f"Perbandingan dimulai siklus berikutnya."
                 )
+                old_data = None
+
+        if old_data:
+            changes = compare_data(old_data, new_data)
+
+            if changes:
+                max_msgs = min(len(changes), 10)
+                for msg in changes[:max_msgs]:
+                    broadcast_telegram_message(msg)
+                    time.sleep(1)
+
+                if len(changes) > 10:
+                    broadcast_telegram_message(f"ℹ️ <i>Dan {len(changes) - 10} perubahan lainnya tidak ditampilkan...</i>")
+
+                send_admin_message(f"📊 [{now_str}] Job selesai: {len(changes)} perubahan, {max_msgs} dikirim.")
+            else:
+                print(f"[{now_str}] Job OK: 0 perubahan. Snapshot: {len(old_data)}→{len(new_data)}")
         else:
             send_admin_message(
-                f"🤖 [{now_str}] <b>Snapshot awal dibuat</b>\n"
+                f"🤖 [{now_str}] <b>Snapshot baru disimpan ke Supabase</b>\n"
                 f"Total: {len(new_data)} varian produk.\n"
-                f"Monitoring dimulai siklus berikutnya."
+                f"Perbandingan dimulai siklus berikutnya."
             )
-            
-        temp_file = f"{DATA_FILE}.tmp"
-        with open(temp_file, 'w', encoding='utf-8') as f:
-            json.dump(new_data, f, indent=4, ensure_ascii=False)
-        os.replace(temp_file, DATA_FILE)
-            
+
+        # Simpan snapshot ke Supabase (bukan file lokal)
+        ok = database.save_snapshot(new_data)
+        if not ok:
+            send_admin_message(f"⚠️ [{now_str}] Gagal simpan snapshot ke Supabase! Cek koneksi.")
+
     except Exception as e:
         print(f"Error during job execution: {e}")
         import traceback

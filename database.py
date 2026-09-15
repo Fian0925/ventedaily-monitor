@@ -15,6 +15,54 @@ headers = {
 session = requests.Session()
 session.headers.update(headers)
 
+
+# =====================================================================
+# SNAPSHOT — disimpan di Supabase agar tidak hilang saat Render restart
+# Table: stock_snapshot (id TEXT PRIMARY KEY, data JSONB, updated_at TIMESTAMPTZ)
+# =====================================================================
+
+def save_snapshot(data) -> bool:
+    """Simpan snapshot stok ke Supabase. Return True jika berhasil."""
+    from datetime import datetime, timezone
+    payload = {
+        "id": "latest",
+        "data": data,
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    upsert_headers = headers.copy()
+    upsert_headers["Prefer"] = "resolution=merge-duplicates"
+    try:
+        res = session.post(
+            f"{SUPABASE_URL}/stock_snapshot",
+            json=payload,
+            headers=upsert_headers,
+            timeout=30
+        )
+        res.raise_for_status()
+        return True
+    except Exception as e:
+        print(f"Error saving snapshot to Supabase: {e}")
+        return False
+
+
+def load_snapshot():
+    """Ambil snapshot stok dari Supabase. Return dict atau None jika belum ada."""
+    try:
+        res = session.get(
+            f"{SUPABASE_URL}/stock_snapshot?id=eq.latest",
+            headers=headers,
+            timeout=15
+        )
+        res.raise_for_status()
+        rows = res.json()
+        if rows:
+            return rows[0].get("data")
+        return None
+    except Exception as e:
+        print(f"Error loading snapshot from Supabase: {e}")
+        return None
+
+
 def log_event(nama, event_type, stock, harga):
     payload = {
         "nama": nama,
