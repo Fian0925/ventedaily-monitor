@@ -108,10 +108,14 @@ def fetch_all():
     stock_items = _fetch_paginated(stock_url)
 
     # Build lookup harga reseller: "product_name color" → reseller_price
+    # Stock product_name format: "Abimaya Dad", color: "Blue"
+    # → price_key: "abimaya dad blue"
     price_lookup = {}
     if stock_items:
         for s in stock_items:
-            pn = s.get("product_name", "").replace("[DEFECT]", "").replace("(Defect)", "").strip()
+            pn = s.get("product_name", "").strip()
+            # Hapus prefix defect
+            pn = pn.replace("[DEFECT]", "").replace("(Defect)", "").strip()
             color = s.get("color", "").strip()
             price_key = f"{pn.lower()} {color.lower()}".strip()
             reseller = s.get("reseller_price", 0)
@@ -124,6 +128,7 @@ def fetch_all():
         return None
 
     # 3. Gabungkan: status dari catalog + harga dari stock lookup
+    import re as _re
     data = {}
     price_miss = 0
     for item in catalog_items:
@@ -138,10 +143,14 @@ def fetch_all():
             status = "Habis"
 
         # Cari harga reseller dari stock lookup
-        # Nama catalog: "Abimaya Dad Blue SIZE Size L" → cari "abimaya dad blue"
-        # Strip SIZE suffix untuk matching
-        import re as _re
-        name_for_lookup = _re.sub(r'\s+SIZE\s+.*$', '', nama, flags=_re.IGNORECASE).strip().lower()
+        # Catalog: "(Couple) Abimaya Dad Blue SIZE Size L"
+        # → strip SIZE suffix → "(couple) abimaya dad blue"
+        # → strip category prefix "(couple) " → "abimaya dad blue"
+        # → cocok dengan stock key "abimaya dad blue"
+        name_no_size = _re.sub(r'\s+SIZE\s+.*$', '', nama, flags=_re.IGNORECASE).strip()
+        name_no_cat = _re.sub(r'^\([^)]+\)\s*', '', name_no_size).strip()
+        name_for_lookup = name_no_cat.lower()
+
         reseller_price = price_lookup.get(name_for_lookup, 0)
 
         if reseller_price > 0:
@@ -154,7 +163,7 @@ def fetch_all():
         data[nama] = {"stock": status, "harga": harga}
 
     if price_miss > 0:
-        print(f"  Info: {price_miss} produk pakai harga fallback dari catalog (tidak ditemukan di stock)")
+        print(f"  Info: {price_miss} produk pakai harga fallback (tidak cocok di stock)")
     print(f"Selesai! Total {len(data)} varian dari catalog, {len(price_lookup)} harga reseller dari stock.")
     return data
 
