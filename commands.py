@@ -1349,6 +1349,128 @@ def _generate_report(bot, chat_id, reply_to=None):
                 bot.reply_to(message, "❌ Format salah. Contoh: 30000")
 
     # =====================
+    # /statistik — Statistik pengguna (admin only)
+    # =====================
+    @bot.message_handler(commands=['statistik'])
+    def handle_statistik(message):
+        if not _check_admin(bot, message): return
+        from datetime import datetime, timezone, timedelta
+        wib = timezone(timedelta(hours=7))
+        now_wib = datetime.now(wib).strftime('%d %B %Y, %H:%M WIB')
+
+        stats = database.get_user_stats()
+        if not stats:
+            bot.reply_to(message, "❌ Gagal mengambil data statistik.")
+            return
+
+        # Perubahan hari ini
+        events_today = database.get_events(days=1)
+        restock_today = sum(1 for e in events_today if e.get('event_type') == 'restock')
+        habis_today = sum(1 for e in events_today if e.get('event_type') == 'habis')
+        baru_today = sum(1 for e in events_today if e.get('event_type') == 'baru')
+
+        # Perubahan minggu ini
+        events_week = database.get_events(days=7)
+
+        reply = (
+            f"📊 <b>STATISTIK BOT</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🕐 {now_wib}\n\n"
+            f"👥 <b>Pengguna</b>\n"
+            f"• Total terdaftar: <b>{stats['total']}</b>\n"
+            f"• Aktif berbayar: <b>{stats['aktif']}</b>\n"
+            f"• Trial aktif: <b>{stats['trial']}</b>\n"
+            f"• Expired: <b>{stats['expired']}</b>\n\n"
+            f"📦 <b>Aktivitas Stok (24 jam)</b>\n"
+            f"• Restock: <b>{restock_today}</b> produk\n"
+            f"• Habis: <b>{habis_today}</b> produk\n"
+            f"• Produk baru: <b>{baru_today}</b>\n"
+            f"• Total perubahan hari ini: <b>{len(events_today)}</b>\n\n"
+            f"📈 <b>Minggu ini</b>\n"
+            f"• Total perubahan: <b>{len(events_week)}</b>\n"
+        )
+        bot.reply_to(message, reply, parse_mode="HTML")
+
+    # =====================
+    # /broadcast — Kirim pesan ke semua user aktif (admin only)
+    # =====================
+    _broadcast_pending = {}  # chat_id → pesan yang akan dibroadcast
+
+    @bot.message_handler(commands=['broadcast'])
+    def handle_broadcast(message):
+        if not _check_admin(bot, message): return
+
+        args = message.text.split(None, 1)
+        if len(args) < 2 or not args[1].strip():
+            bot.reply_to(
+                message,
+                "📢 <b>BROADCAST PESAN</b>\n\n"
+                "Format:\n"
+                "<code>/broadcast [pesan kamu]</code>\n\n"
+                "Contoh:\n"
+                "<code>/broadcast Promo spesial hari ini! Hubungi admin untuk info lebih lanjut.</code>",
+                parse_mode="HTML"
+            )
+            return
+
+        pesan = args[1].strip()
+        active_users = database.get_active_users()
+        count = len(active_users)
+
+        if count == 0:
+            bot.reply_to(message, "⚠️ Tidak ada user aktif saat ini.")
+            return
+
+        # Simpan pesan pending, minta konfirmasi
+        _broadcast_pending[message.chat.id] = pesan
+        bot.reply_to(
+            message,
+            f"📢 <b>Konfirmasi Broadcast</b>\n\n"
+            f"Pesan yang akan dikirim:\n"
+            f"<i>{pesan}</i>\n\n"
+            f"Akan dikirim ke <b>{count} user aktif</b>.\n\n"
+            f"Ketik /konfirmbroadcast untuk kirim, atau abaikan untuk batal.",
+            parse_mode="HTML"
+        )
+
+    @bot.message_handler(commands=['konfirmbroadcast'])
+    def handle_konfirm_broadcast(message):
+        if not _check_admin(bot, message): return
+
+        chat_id = message.chat.id
+        pesan = _broadcast_pending.pop(chat_id, None)
+        if not pesan:
+            bot.reply_to(message, "⚠️ Tidak ada broadcast yang pending. Gunakan /broadcast [pesan] dulu.")
+            return
+
+        active_users = database.get_active_users()
+        bot.reply_to(message, f"📤 Mengirim ke {len(active_users)} user aktif...")
+
+        berhasil = 0
+        gagal = 0
+        import time as _time
+        for u in active_users:
+            try:
+                bot.send_message(
+                    u['chat_id'],
+                    f"📢 <b>INFO DARI ADMIN</b>\n\n{pesan}",
+                    parse_mode="HTML"
+                )
+                berhasil += 1
+                _time.sleep(0.05)
+            except Exception as e:
+                gagal += 1
+                print(f"Broadcast gagal ke {u['chat_id']}: {e}")
+
+        bot.send_message(
+            chat_id,
+            f"✅ <b>Broadcast Selesai</b>\n"
+            f"• Berhasil: {berhasil}\n"
+            f"• Gagal: {gagal}",
+            parse_mode="HTML"
+        )
+
+    # =====================
     # FALLBACK HANDLER
     # =====================
     @bot.message_handler(func=lambda message: True, content_types=['text', 'audio', 'document', 'photo', 'sticker', 'video', 'video_note', 'voice', 'location', 'contact'])

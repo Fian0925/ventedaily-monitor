@@ -287,7 +287,69 @@ def job():
         except:
             pass
 
-def check_expirations_job():
+def rekap_harian_job():
+    """Kirim rekap perubahan stok harian ke semua user aktif. Dijadwalkan jam 08:00 WIB."""
+    from datetime import datetime, timezone, timedelta
+    wib = timezone(timedelta(hours=7))
+    now_wib = datetime.now(wib)
+    hari_ini = now_wib.strftime('%A, %d %B %Y')
+
+    # Ganti nama hari ke Bahasa Indonesia
+    hari_map = {
+        'Monday': 'Senin', 'Tuesday': 'Selasa', 'Wednesday': 'Rabu',
+        'Thursday': 'Kamis', 'Friday': "Jum'at", 'Saturday': 'Sabtu', 'Sunday': 'Minggu'
+    }
+    for en, id_ in hari_map.items():
+        hari_ini = hari_ini.replace(en, id_)
+
+    try:
+        events = database.get_events(days=1)
+        if not events:
+            # Tidak ada perubahan kemarin, tidak perlu kirim rekap
+            print(f"[Rekap Harian] Tidak ada perubahan stok dalam 24 jam terakhir.")
+            return
+
+        restock = [e for e in events if e.get('event_type') == 'restock']
+        habis   = [e for e in events if e.get('event_type') == 'habis']
+        baru    = [e for e in events if e.get('event_type') == 'baru']
+        lainnya = [e for e in events if e.get('event_type') not in ('restock', 'habis', 'baru')]
+
+        msg = (
+            f"📊 <b>REKAP STOK HARIAN</b>\n"
+            f"📅 {hari_ini}\n"
+            f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+        )
+        if restock:
+            msg += f"🟢 <b>Restock</b>: {len(restock)} produk\n"
+        if habis:
+            msg += f"🔴 <b>Habis</b>: {len(habis)} produk\n"
+        if baru:
+            msg += f"🆕 <b>Produk Baru</b>: {len(baru)} produk\n"
+        if lainnya:
+            msg += f"🔄 <b>Perubahan lain</b>: {len(lainnya)}\n"
+
+        msg += (
+            f"\n<b>Total perubahan: {len(events)}</b>\n\n"
+            f"💡 Ketik /perubahan untuk detail lengkap"
+        )
+
+        users = database.get_active_users()
+        sent = 0
+        for u in users:
+            try:
+                bot.send_message(u['chat_id'], msg, parse_mode="HTML")
+                sent += 1
+                time.sleep(0.05)
+            except Exception as e:
+                print(f"Rekap harian gagal ke {u['chat_id']}: {e}")
+
+        print(f"[Rekap Harian] Terkirim ke {sent}/{len(users)} user. "
+              f"Restock={len(restock)}, Habis={len(habis)}, Baru={len(baru)}")
+
+    except Exception as e:
+        print(f"[Rekap Harian] Error: {e}")
+
+
     users = database.get_all_users()
     from datetime import datetime, timezone, timedelta
     now = datetime.now(timezone.utc)
@@ -368,6 +430,9 @@ def run_scheduler():
             print(f"Error sending weekly report: {e}")
     
     schedule.every().monday.at("08:00").do(weekly_report_job)
+
+    # Rekap harian stok — jam 08:00 WIB = 01:00 UTC
+    schedule.every().day.at("01:00").do(rekap_harian_job)
     
     while True:
         schedule.run_pending()

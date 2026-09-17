@@ -63,6 +63,48 @@ def load_snapshot():
         return None
 
 
+def get_user_stats():
+    """Ambil statistik pengguna untuk command /statistik admin."""
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    try:
+        res = session.get(f"{SUPABASE_URL}/user_settings", headers=headers, timeout=15)
+        res.raise_for_status()
+        users = res.json()
+    except Exception as e:
+        print(f"Error getting user stats: {e}")
+        return None
+
+    total = len(users)
+    aktif = 0
+    trial = 0
+    expired = 0
+    for u in users:
+        if u.get('role') == 'admin':
+            continue
+        v_str = u.get('valid_until', '2000-01-01T00:00:00Z')
+        pt = u.get('plan_type', 'none')
+        try:
+            valid_until = datetime.fromisoformat(v_str.replace('Z', '+00:00'))
+        except:
+            expired += 1
+            continue
+        if valid_until > now:
+            if pt == 'trial':
+                trial += 1
+            else:
+                aktif += 1
+        else:
+            expired += 1
+
+    return {
+        'total': total,
+        'aktif': aktif,
+        'trial': trial,
+        'expired': expired,
+    }
+
+
 def log_event(nama, event_type, stock, harga):
     payload = {
         "nama": nama,
