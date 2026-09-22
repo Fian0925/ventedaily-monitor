@@ -455,7 +455,16 @@ def run_scheduler():
     schedule.every().day.at("05:00").do(heartbeat_job)
     
     while True:
-        schedule.run_pending()
+        try:
+            schedule.run_pending()
+        except Exception as e:
+            print(f"[SCHEDULER] Uncaught error in scheduled job: {e}")
+            import traceback
+            traceback.print_exc()
+            try:
+                send_admin_message(f"⚠️ <b>Scheduler Error</b>\n<code>{e}</code>\nBot tetap berjalan.")
+            except:
+                pass
         time.sleep(1)
 
 if __name__ == "__main__":
