@@ -433,6 +433,26 @@ def run_scheduler():
 
     # Rekap harian stok — jam 08:00 WIB = 01:00 UTC
     schedule.every().day.at("01:00").do(rekap_harian_job)
+
+    # Heartbeat harian — lapor bot masih hidup jam 12:00 WIB = 05:00 UTC
+    def heartbeat_job():
+        from datetime import datetime, timezone, timedelta
+        wib = timezone(timedelta(hours=7))
+        now_wib = datetime.now(wib).strftime('%d %b %Y %H:%M WIB')
+        # Cek apakah snapshot masih baru (max 30 menit lalu)
+        try:
+            r = database.load_snapshot()
+            snap_fresh = r is not None
+        except:
+            snap_fresh = False
+        status = "OK" if snap_fresh else "⚠️ Snapshot tidak tersedia"
+        send_admin_message(
+            f"💓 <b>Bot Heartbeat</b>\n"
+            f"🕐 {now_wib}\n"
+            f"📦 Snapshot: {status}\n"
+            f"✅ Scheduler berjalan normal"
+        )
+    schedule.every().day.at("05:00").do(heartbeat_job)
     
     while True:
         schedule.run_pending()
