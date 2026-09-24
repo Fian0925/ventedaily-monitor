@@ -350,6 +350,7 @@ def rekap_harian_job():
         print(f"[Rekap Harian] Error: {e}")
 
 
+def check_expirations_job():
     users = database.get_all_users()
     from datetime import datetime, timezone, timedelta
     now = datetime.now(timezone.utc)
