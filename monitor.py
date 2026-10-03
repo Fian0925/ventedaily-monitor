@@ -139,6 +139,11 @@ def fetch_all():
         if not nama:
             continue
 
+        # Skip produk defect
+        nama_lower = nama.lower()
+        if '[defect]' in nama_lower or '(defect)' in nama_lower:
+            continue
+
         if status not in ("Aman", "Ready", "Habis"):
             status = "Habis"
 
