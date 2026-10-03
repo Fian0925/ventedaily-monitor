@@ -12,17 +12,23 @@ DATA_FILE = 'data_snapshot.json'
 
 
 def _load_snapshot():
-    """Load data snapshot dan normalize ke format {nama: {stock, harga}}"""
+    """Load data snapshot dari Supabase."""
+    try:
+        data = database.load_snapshot()
+        if data:
+            return data
+    except Exception as e:
+        print(f"Error loading snapshot from Supabase: {e}")
+
+    # Fallback ke file lokal jika Supabase gagal
     if not os.path.exists(DATA_FILE):
         return None
     try:
         with open(DATA_FILE, 'r', encoding='utf-8') as f:
-            data = json.load(f)
+            return json.load(f)
     except Exception as e:
-        print(f"Error loading snapshot: {e}")
+        print(f"Error loading snapshot from file: {e}")
         return None
-        
-    return data
 
 
 def _send_long_message(bot, chat_id, text, reply_to=None, parse_mode="HTML"):
@@ -291,13 +297,27 @@ def register_handlers(bot):
     # =====================
     @bot.message_handler(commands=['status', 'cek'])
     def handle_status(message):
-        if os.path.exists(DATA_FILE):
-            with open(DATA_FILE, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            mod_time = os.path.getmtime(DATA_FILE)
-            from datetime import timezone, timedelta
-            last_check = datetime.fromtimestamp(mod_time, timezone(timedelta(hours=7))).strftime('%Y-%m-%d %H:%M:%S WIB')
+        from datetime import timezone, timedelta
+        data = _load_snapshot()
+        if data:
             total_items = len(data)
+            # Ambil updated_at dari Supabase
+            try:
+                import requests as _req
+                import config as _cfg
+                H = {'apikey': _cfg.SUPABASE_KEY, 'Authorization': f'Bearer {_cfg.SUPABASE_KEY}'}
+                r = _req.get(f"{_cfg.SUPABASE_URL}/rest/v1/stock_snapshot?id=eq.latest&select=updated_at",
+                             headers=H, timeout=10)
+                rows = r.json()
+                if rows:
+                    wib = timezone(timedelta(hours=7))
+                    from datetime import datetime
+                    updated = datetime.fromisoformat(rows[0]['updated_at'].replace('Z', '+00:00')).astimezone(wib)
+                    last_check = updated.strftime('%Y-%m-%d %H:%M:%S WIB')
+                else:
+                    last_check = "tidak diketahui"
+            except:
+                last_check = "tidak diketahui"
             reply = (
                 f"🟢 <b>Server Berjalan Normal!</b>\n\n"
                 f"📦 Total Produk Dipantau: <b>{total_items}</b>\n"
