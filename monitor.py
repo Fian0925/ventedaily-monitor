@@ -27,6 +27,12 @@ def home():
 
 @app.route('/api/data')
 def get_data():
+    snap = database.load_snapshot()
+    if snap:
+        response = make_response(json.dumps(snap, ensure_ascii=False))
+        response.headers['Content-Type'] = 'application/json; charset=utf-8'
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        return response
     if os.path.exists(DATA_FILE):
         response = make_response(send_file(DATA_FILE, mimetype='application/json'))
         response.headers['Access-Control-Allow-Origin'] = '*'
@@ -173,56 +179,199 @@ def fetch_all():
     return data
 
 
+_NOTIF_SIZE_ORDER = ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL', 'ALL SIZE', 'FREE SIZE', '-']
+
+
+def _split_base_and_size(prod_nama):
+    """Pisahkan nama produk dasar dan ukuran dari format catalog."""
+    import re as _re
+    m = _re.search(r'\s+SIZE\s+(?:Size\s+)?(.+)$', prod_nama, flags=_re.IGNORECASE)
+    if m:
+        base = prod_nama[:m.start()].strip()
+        raw_sz = m.group(1).strip()
+        sz_up = raw_sz.upper()
+        if sz_up == "ALL SIZE":
+            sz_disp = "All Size"
+        elif sz_up == "FREE SIZE":
+            sz_disp = "Free Size"
+        else:
+            sz_disp = sz_up
+        return base, sz_disp
+    return prod_nama.strip(), "-"
+
+
+def _sort_size_items(size_items):
+    """Urutkan list (size_str, status_or_none) sesuai urutan ukuran pakaian."""
+    def _key(item):
+        sz_up = item[0].upper()
+        if sz_up in _NOTIF_SIZE_ORDER:
+            return (0, _NOTIF_SIZE_ORDER.index(sz_up), sz_up)
+        return (1, 99, sz_up)
+    return sorted(size_items, key=_key)
+
+
 def compare_data(old_data, new_data):
-    changes = []
-    MAX_LOG_EVENTS = 50  # Batasi agar tidak freeze saat ratusan produk berubah
+    """Bandingkan snapshot lama vs baru, log ke DB, dan buat 1 pesan grup rapi (anti-spam)."""
+    from collections import defaultdict
+    from datetime import timezone, timedelta
+
+    MAX_LOG_EVENTS = 100  # Batasi agar tidak freeze saat ratusan produk berubah
     logged = 0
-    
+    total_changes = 0
+
+    restock_groups = defaultdict(lambda: {"harga": "", "sizes": []})
+    new_groups = defaultdict(lambda: {"harga": "", "sizes": []})
+    menipis_groups = defaultdict(lambda: {"harga": "", "sizes": []})
+    aman_lagi_groups = defaultdict(lambda: {"harga": "", "sizes": []})
+    habis_groups = defaultdict(lambda: {"harga": "", "sizes": []})
+    price_groups = {}
+
     for prod_nama, new_item in new_data.items():
+        base_name, sz = _split_base_and_size(prod_nama)
+        new_st = new_item.get('stock', '').strip()
+        new_st_low = new_st.lower()
+        new_harga = new_item.get('harga', '')
+
         if prod_nama not in old_data:
-            changes.append(
-                f"🟢 <b>PRODUK BARU</b>\n"
-                f"🏷️ {prod_nama}\n"
-                f"Stok: {new_item['stock']} | Harga: {new_item['harga']}"
-            )
+            total_changes += 1
             if logged < MAX_LOG_EVENTS:
-                database.log_event(prod_nama, 'new', new_item['stock'], new_item['harga'])
+                database.log_event(prod_nama, 'new', new_st, new_harga)
                 logged += 1
+            # Hanya tampilkan di notif jika produk baru stoknya Ready/Aman
+            if new_st_low in ('aman', 'ready'):
+                new_groups[base_name]["harga"] = new_harga
+                new_groups[base_name]["sizes"].append((sz, new_st_low))
         else:
             old_item = old_data[prod_nama]
-            prod_changes = []
-            
-            if old_item['stock'] != new_item['stock']:
-                old_st = old_item['stock'].lower()
-                new_st = new_item['stock'].lower()
-                icon = "🔄"
-                if "habis" in old_st and ("ready" in new_st or "aman" in new_st): 
-                    icon = "✔️"
+            old_st = old_item.get('stock', '').strip()
+            old_st_low = old_st.lower()
+            old_harga = old_item.get('harga', '')
+
+            if old_st != new_st:
+                total_changes += 1
+                if "habis" in old_st_low and new_st_low in ("ready", "aman"):
                     if logged < MAX_LOG_EVENTS:
-                        database.log_event(prod_nama, 'restock', new_item['stock'], new_item['harga'])
+                        database.log_event(prod_nama, 'restock', new_st, new_harga)
                         logged += 1
-                elif ("ready" in old_st or "aman" in old_st) and "habis" in new_st: 
-                    icon = "❌"
+                    restock_groups[base_name]["harga"] = new_harga
+                    restock_groups[base_name]["sizes"].append((sz, new_st_low))
+                elif old_st_low in ("ready", "aman") and "habis" in new_st_low:
                     if logged < MAX_LOG_EVENTS:
-                        database.log_event(prod_nama, 'habis', old_item['stock'], new_item['harga'])
+                        database.log_event(prod_nama, 'habis', old_st, new_harga)
                         logged += 1
-                prod_changes.append(f"{icon} Stok: {old_item['stock']} ➡️ <b>{new_item['stock']}</b>")
-                
-            if old_item['harga'] != new_item['harga']:
-                prod_changes.append(f"💰 Harga: {old_item['harga']} ➡️ {new_item['harga']}")
+                    habis_groups[base_name]["harga"] = new_harga
+                    habis_groups[base_name]["sizes"].append((sz, new_st_low))
+                elif old_st_low == "aman" and new_st_low == "ready":
+                    menipis_groups[base_name]["harga"] = new_harga
+                    menipis_groups[base_name]["sizes"].append((sz, new_st_low))
+                elif old_st_low == "ready" and new_st_low == "aman":
+                    aman_lagi_groups[base_name]["harga"] = new_harga
+                    aman_lagi_groups[base_name]["sizes"].append((sz, new_st_low))
+
+            if old_harga != new_harga:
+                total_changes += 1
                 if logged < MAX_LOG_EVENTS:
-                    database.log_event(prod_nama, 'price_change', old_item['harga'], new_item['harga'])
+                    database.log_event(prod_nama, 'price_change', old_harga, new_harga)
                     logged += 1
-                
-            if prod_changes:
-                msg = f"⚠️ <b>PERUBAHAN DATA</b>\n🏷️ {prod_nama}\n" + "\n".join(prod_changes)
-                changes.append(msg)
-                
-    for prod_nama, old_item in old_data.items():
-        if prod_nama not in new_data:
-            changes.append(f"🔴 <b>PRODUK DIHAPUS</b>\n🏷️ {prod_nama}")
-            
-    return changes
+                price_groups[base_name] = (old_harga, new_harga)
+
+    has_visible = any([
+        restock_groups, new_groups, menipis_groups,
+        aman_lagi_groups, habis_groups, price_groups
+    ])
+    if not has_visible:
+        return [], total_changes
+
+    wib = timezone(timedelta(hours=7))
+    now_label = datetime.now(wib).strftime('%d %b %Y | %H:%M WIB')
+
+    lines = [
+        "🔔 <b>UPDATE STOK VENTEDAILY</b>",
+        f"🕐 {now_label}",
+        "━━━━━━━━━━━━━━━━━━━━━",
+    ]
+
+    MAX_PER_SECTION = 12
+
+    def _fmt_sizes_with_icon(sz_list):
+        ordered = _sort_size_items(sz_list)
+        parts = []
+        for sz, st in ordered:
+            icon = "✅" if st == "aman" else "⚠️"
+            parts.append(f"{sz}{icon}" if sz != "-" else f"Stok{icon}")
+        return " ".join(parts)
+
+    def _fmt_sizes_plain(sz_list):
+        ordered = _sort_size_items(sz_list)
+        return ", ".join(sz for sz, _ in ordered if sz != "-") or "Semua ukuran"
+
+    if restock_groups:
+        items = sorted(restock_groups.items())
+        lines.append(f"\n🟢 <b>RESTOCK ({len(items)} produk):</b>")
+        for base, info in items[:MAX_PER_SECTION]:
+            lines.append(f"• <b>{base}</b> — {info['harga']}\n  └ {_fmt_sizes_with_icon(info['sizes'])}")
+        if len(items) > MAX_PER_SECTION:
+            lines.append(f"  <i>... +{len(items) - MAX_PER_SECTION} produk restock lainnya (ketik /restock)</i>")
+
+    if new_groups:
+        items = sorted(new_groups.items())
+        lines.append(f"\n🆕 <b>PRODUK BARU ({len(items)} produk):</b>")
+        for base, info in items[:MAX_PER_SECTION]:
+            lines.append(f"• <b>{base}</b> — {info['harga']}\n  └ {_fmt_sizes_with_icon(info['sizes'])}")
+        if len(items) > MAX_PER_SECTION:
+            lines.append(f"  <i>... +{len(items) - MAX_PER_SECTION} produk baru lainnya (ketik /baru)</i>")
+
+    if aman_lagi_groups:
+        items = sorted(aman_lagi_groups.items())
+        lines.append(f"\n✅ <b>STOK KEMBALI BANYAK ({len(items)} produk):</b>")
+        for base, info in items[:8]:
+            lines.append(f"• <b>{base}</b> ({_fmt_sizes_plain(info['sizes'])})")
+        if len(items) > 8:
+            lines.append(f"  <i>... +{len(items) - 8} lainnya</i>")
+
+    if menipis_groups:
+        items = sorted(menipis_groups.items())
+        lines.append(f"\n⚡ <b>STOK MENIPIS / LIMIT ({len(items)} produk):</b>")
+        for base, info in items[:8]:
+            lines.append(f"• <b>{base}</b> ({_fmt_sizes_plain(info['sizes'])})")
+        if len(items) > 8:
+            lines.append(f"  <i>... +{len(items) - 8} lainnya</i>")
+
+    if habis_groups:
+        items = sorted(habis_groups.items())
+        lines.append(f"\n🔴 <b>JADI HABIS ({len(items)} produk):</b>")
+        for base, info in items[:10]:
+            lines.append(f"• {base} ({_fmt_sizes_plain(info['sizes'])})")
+        if len(items) > 10:
+            lines.append(f"  <i>... +{len(items) - 10} produk habis lainnya</i>")
+
+    if price_groups:
+        items = sorted(price_groups.items())
+        lines.append(f"\n💰 <b>PERUBAHAN HARGA ({len(items)} produk):</b>")
+        for base, (old_p, new_p) in items[:8]:
+            lines.append(f"• <b>{base}</b>: {old_p} ➡️ <b>{new_p}</b>")
+        if len(items) > 8:
+            lines.append(f"  <i>... +{len(items) - 8} perubahan harga lainnya</i>")
+
+    lines.append("\n<i>✅ Aman | ⚠️ Ready (Terbatas)\n💡 Ketik langsung nama produk di chat untuk cek & buat katalog.</i>")
+
+    full_msg = "\n".join(lines)
+    # Pecah aman jika melebihi batas Telegram 4000 karakter
+    messages = []
+    if len(full_msg) <= 4000:
+        messages.append(full_msg)
+    else:
+        chunk = ""
+        for ln in full_msg.split("\n"):
+            if len(chunk) + len(ln) + 1 > 3900:
+                messages.append(chunk)
+                chunk = ln + "\n"
+            else:
+                chunk += ln + "\n"
+        if chunk.strip():
+            messages.append(chunk)
+
+    return messages, total_changes
 
 
 def job():
@@ -257,20 +406,16 @@ def job():
                 old_data = None
 
         if old_data:
-            changes = compare_data(old_data, new_data)
+            messages, total_changes = compare_data(old_data, new_data)
 
-            if changes:
-                max_msgs = min(len(changes), 10)
-                for msg in changes[:max_msgs]:
+            if messages:
+                for msg in messages:
                     broadcast_telegram_message(msg)
-                    time.sleep(1)
+                    time.sleep(0.5)
 
-                if len(changes) > 10:
-                    broadcast_telegram_message(f"ℹ️ <i>Dan {len(changes) - 10} perubahan lainnya tidak ditampilkan...</i>")
-
-                send_admin_message(f"📊 [{now_str}] Job selesai: {len(changes)} perubahan, {max_msgs} dikirim.")
+                send_admin_message(f"📊 [{now_str}] Job selesai: {total_changes} varian berubah, dikirim dalam {len(messages)} pesan ringkas.")
             else:
-                print(f"[{now_str}] Job OK: 0 perubahan. Snapshot: {len(old_data)}→{len(new_data)}")
+                print(f"[{now_str}] Job OK: {total_changes} perubahan minor/0 perubahan tampil. Snapshot: {len(old_data)}→{len(new_data)}")
         else:
             send_admin_message(
                 f"🤖 [{now_str}] <b>Snapshot baru disimpan ke Supabase</b>\n"
@@ -316,8 +461,8 @@ def rekap_harian_job():
 
         restock = [e for e in events if e.get('event_type') == 'restock']
         habis   = [e for e in events if e.get('event_type') == 'habis']
-        baru    = [e for e in events if e.get('event_type') == 'baru']
-        lainnya = [e for e in events if e.get('event_type') not in ('restock', 'habis', 'baru')]
+        baru    = [e for e in events if e.get('event_type') in ('new', 'baru')]
+        lainnya = [e for e in events if e.get('event_type') not in ('restock', 'habis', 'new', 'baru')]
 
         msg = (
             f"📊 <b>REKAP STOK HARIAN</b>\n"
@@ -358,6 +503,7 @@ def rekap_harian_job():
 def check_expirations_job():
     users = database.get_all_users()
     from datetime import datetime, timezone, timedelta
+    from telebot import types as _types
     now = datetime.now(timezone.utc)
     for u in users:
         if u.get('role') == 'admin': continue
@@ -365,18 +511,23 @@ def check_expirations_job():
         v_str = u.get('valid_until', '2000-01-01T00:00:00Z')
         try:
             valid_until = datetime.fromisoformat(v_str.replace('Z', '+00:00'))
+            if valid_until.tzinfo is None:
+                valid_until = valid_until.replace(tzinfo=timezone.utc)
         except:
             continue
             
         time_left = valid_until - now
+        kb_ext = _types.InlineKeyboardMarkup()
+        kb_ext.add(_types.InlineKeyboardButton("💎 Perpanjang Sekarang (QRIS)", callback_data="open_plans"))
         
         if timedelta(hours=0) < time_left <= timedelta(hours=1):
             if u.get('reminder_sent') != '1_hour':
                 try:
                     bot.send_message(
                         u['chat_id'], 
-                        "⏰ <b>SISA WAKTU 1 JAM!</b>\n\nMasa aktif langganan Ventedaily Monitor kamu akan habis dalam waktu kurang dari 1 jam.\n👉 Segera hubungi Admin untuk perpanjangan agar tidak ketinggalan info restock!", 
-                        parse_mode="HTML"
+                        "⏰ <b>SISA WAKTU 1 JAM!</b>\n\nMasa aktif langganan Ventedaily Monitor kamu akan habis dalam waktu kurang dari 1 jam.\n👉 Klik tombol di bawah atau ketik /langganan agar tidak ketinggalan info restock!", 
+                        parse_mode="HTML",
+                        reply_markup=kb_ext
                     )
                     database.update_subscription(u['chat_id'], u.get('plan_type','pro'), v_str, "1_hour")
                 except: pass
@@ -385,8 +536,9 @@ def check_expirations_job():
                 try:
                     bot.send_message(
                         u['chat_id'], 
-                        "⏰ <b>PENGINGAT (H-1)</b>\n\nMasa aktif langganan Ventedaily Monitor kamu akan habis besok.\n👉 Hubungi Admin untuk perpanjangan paket kamu.", 
-                        parse_mode="HTML"
+                        "⏰ <b>PENGINGAT (H-1)</b>\n\nMasa aktif langganan Ventedaily Monitor kamu akan habis besok.\n👉 Klik tombol di bawah atau ketik /langganan untuk perpanjangan instan via QRIS.", 
+                        parse_mode="HTML",
+                        reply_markup=kb_ext
                     )
                     database.update_subscription(u['chat_id'], u.get('plan_type','pro'), v_str, "1_day")
                 except: pass
@@ -435,7 +587,8 @@ def run_scheduler():
         except Exception as e:
             print(f"Error sending weekly report: {e}")
     
-    schedule.every().monday.at("08:00").do(weekly_report_job)
+    # Senin jam 08:00 WIB = 01:00 UTC
+    schedule.every().monday.at("01:00").do(weekly_report_job)
 
     # Rekap harian stok — jam 08:00 WIB = 01:00 UTC
     schedule.every().day.at("01:00").do(rekap_harian_job)
@@ -444,14 +597,22 @@ def run_scheduler():
     def heartbeat_job():
         from datetime import datetime, timezone, timedelta
         wib = timezone(timedelta(hours=7))
-        now_wib = datetime.now(wib).strftime('%d %b %Y %H:%M WIB')
-        # Cek apakah snapshot masih baru (max 30 menit lalu)
+        now_utc = datetime.now(timezone.utc)
+        now_wib = now_utc.astimezone(wib).strftime('%d %b %Y %H:%M WIB')
+        # Cek apakah snapshot benar-benar baru (max 30 menit lalu)
         try:
-            r = database.load_snapshot()
-            snap_fresh = r is not None
-        except:
-            snap_fresh = False
-        status = "OK" if snap_fresh else "⚠️ Snapshot tidak tersedia"
+            upd_str = database.get_snapshot_updated_at()
+            if upd_str:
+                upd_dt = datetime.fromisoformat(upd_str.replace('Z', '+00:00'))
+                age_min = int((now_utc - upd_dt).total_seconds() // 60)
+                if age_min <= 30:
+                    status = f"OK ({age_min} menit lalu)"
+                else:
+                    status = f"⚠️ Terlambat ({age_min} menit lalu)"
+            else:
+                status = "⚠️ Snapshot tidak tersedia"
+        except Exception as e:
+            status = f"⚠️ Gagal cek ({e})"
         send_admin_message(
             f"💓 <b>Bot Heartbeat</b>\n"
             f"🕐 {now_wib}\n"
@@ -474,8 +635,9 @@ def run_scheduler():
         time.sleep(1)
 
 if __name__ == "__main__":
-    commands.register_handlers(bot)
+    # Penting: daftarkan handler payments terlebih dahulu sebelum fallback/pencarian langsung di commands
     payments.register_handlers(bot)
+    commands.register_handlers(bot)
     
     # Start the background job
     t = threading.Thread(target=run_scheduler, daemon=True)

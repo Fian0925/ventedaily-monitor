@@ -676,6 +676,39 @@ def _admin_plan_text(plans: List[dict]) -> str:
     return "\n".join(lines)
 
 
+def send_invoice_info(bot, chat_id: int, reply_to=None) -> None:
+    try:
+        payment = latest_payment(chat_id)
+    except Exception as exc:
+        msg = f"⚠️ Gagal membaca tagihan: {exc}"
+        if reply_to:
+            bot.reply_to(reply_to, msg)
+        else:
+            bot.send_message(chat_id, msg)
+        return
+    if not payment:
+        msg = "📭 Belum ada tagihan."
+        if reply_to:
+            bot.reply_to(reply_to, msg)
+        else:
+            bot.send_message(chat_id, msg)
+        return
+    markup = types.InlineKeyboardMarkup()
+    if payment["status"] == "pending":
+        markup.add(types.InlineKeyboardButton("💳 Tampilkan QRIS", callback_data=f"pay_qr:{payment['invoice']}"))
+    markup.add(types.InlineKeyboardButton("🔄 Cek Status", callback_data=f"pay_status:{payment['invoice']}"))
+    text = (
+        f"📄 <code>{payment['invoice']}</code>\n"
+        f"Paket: <b>{payment.get('plan_name') or payment.get('plan_code') or '-'}</b>\n"
+        f"Total: <b>{_format_rupiah(int(payment['amount']))}</b>\n"
+        f"Status: {_status_label(payment['status'])}"
+    )
+    if reply_to:
+        bot.reply_to(reply_to, text, parse_mode="HTML", reply_markup=markup)
+    else:
+        bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=markup)
+
+
 def register_handlers(bot) -> None:
     _set_command_menu(bot)
 
@@ -688,27 +721,7 @@ def register_handlers(bot) -> None:
 
     @bot.message_handler(commands=["tagihan"])
     def handle_invoice(message):
-        try:
-            payment = latest_payment(message.chat.id)
-        except Exception as exc:
-            bot.reply_to(message, f"⚠️ Gagal membaca tagihan: {exc}")
-            return
-        if not payment:
-            bot.reply_to(message, "📭 Belum ada tagihan.")
-            return
-        markup = types.InlineKeyboardMarkup()
-        if payment["status"] == "pending":
-            markup.add(types.InlineKeyboardButton("💳 Tampilkan QRIS", callback_data=f"pay_qr:{payment['invoice']}"))
-        markup.add(types.InlineKeyboardButton("🔄 Cek Status", callback_data=f"pay_status:{payment['invoice']}"))
-        bot.reply_to(
-            message,
-            f"📄 <code>{payment['invoice']}</code>\n"
-            f"Paket: <b>{payment.get('plan_name') or payment.get('plan_code') or '-'}</b>\n"
-            f"Total: <b>{_format_rupiah(int(payment['amount']))}</b>\n"
-            f"Status: {_status_label(payment['status'])}",
-            parse_mode="HTML",
-            reply_markup=markup,
-        )
+        send_invoice_info(bot, message.chat.id, reply_to=message)
 
     @bot.message_handler(commands=["payments"])
     def handle_admin_payments(message):
@@ -844,6 +857,14 @@ def register_handlers(bot) -> None:
             bot.answer_callback_query(call.id, f"Error: {exc}", show_alert=True)
 
     # ---------------- User payment callbacks ----------------
+    @bot.callback_query_handler(func=lambda call: call.data == "open_plans")
+    def callback_open_plans(call):
+        bot.answer_callback_query(call.id)
+        try:
+            _send_plans_menu(bot, call.message.chat.id)
+        except Exception as exc:
+            bot.send_message(call.message.chat.id, f"⚠️ Gagal membuka paket: {exc}")
+
     @bot.callback_query_handler(func=lambda call: call.data.startswith("plan:"))
     def callback_plan(call):
         bot.answer_callback_query(call.id)
@@ -991,14 +1012,21 @@ def register_handlers(bot) -> None:
                 )
             except Exception:
                 pass
+            kb_active = None
+            try:
+                import commands as _cmds
+                kb_active = _cmds.get_main_keyboard(True)
+            except Exception:
+                pass
             bot.send_message(
                 claimed["chat_id"],
                 "🎉 <b>PEMBAYARAN BERHASIL!</b>\n\n"
                 f"📦 Paket: <b>{claimed.get('plan_name') or claimed.get('plan_code') or 'Pro'}</b>\n"
                 f"⏳ Tambahan: <b>{claimed['duration_days']} hari</b>\n"
                 f"📅 Aktif sampai: <b>{until_wib}</b>\n\n"
-                "Akses premium sudah aktif. Ketik /help untuk mulai menggunakan bot.",
+                "Akses penuh sudah aktif! Kamu bisa langsung ketik <b>nama produk</b> di bawah untuk mencari stok.",
                 parse_mode="HTML",
+                reply_markup=kb_active,
             )
         except Exception as exc:
             try:
@@ -1086,10 +1114,13 @@ def send_h3_expiration_reminders(bot) -> None:
         try:
             if _reminder_already_sent(str(user["chat_id"]), raw, "h3"):
                 continue
+            kb_rem = types.InlineKeyboardMarkup()
+            kb_rem.add(types.InlineKeyboardButton("💎 Perpanjang Sekarang (QRIS)", callback_data="open_plans"))
             bot.send_message(
                 user["chat_id"],
-                "⏰ <b>PENGINGAT H-3</b>\n\nMasa aktif Ventedaily Monitor akan habis sekitar 3 hari lagi. Ketik /langganan untuk memilih paket perpanjangan.",
+                "⏰ <b>PENGINGAT H-3</b>\n\nMasa aktif Ventedaily Monitor akan habis sekitar 3 hari lagi. Klik tombol di bawah atau ketik /langganan untuk perpanjangan.",
                 parse_mode="HTML",
+                reply_markup=kb_rem,
             )
             _mark_reminder_sent(str(user["chat_id"]), raw, "h3")
         except Exception as exc:

@@ -63,6 +63,24 @@ def load_snapshot():
         return None
 
 
+def get_snapshot_updated_at():
+    """Ambil waktu updated_at snapshot terakhir dari Supabase (ISO string atau None)."""
+    try:
+        res = session.get(
+            f"{SUPABASE_URL}/stock_snapshot?id=eq.latest&select=updated_at",
+            headers=headers,
+            timeout=10
+        )
+        res.raise_for_status()
+        rows = res.json()
+        if rows:
+            return rows[0].get("updated_at")
+        return None
+    except Exception as e:
+        print(f"Error getting snapshot updated_at: {e}")
+        return None
+
+
 def get_user_stats():
     """Ambil statistik pengguna untuk command /statistik admin."""
     from datetime import datetime, timezone
@@ -122,8 +140,9 @@ def get_events(event_type=None, days=1, specific_date=None):
     from datetime import datetime, timedelta, timezone
     
     if specific_date:
-        start = f"{specific_date}T00:00:00Z"
-        end = f"{specific_date}T23:59:59Z"
+        # Gunakan batas waktu WIB (+07:00) agar sesuai tanggal Indonesia
+        start = f"{specific_date}T00:00:00%2B07:00"
+        end = f"{specific_date}T23:59:59%2B07:00"
         if event_type:
             url = f"{SUPABASE_URL}/product_events?event_type=eq.{event_type}&detected_at=gte.{start}&detected_at=lte.{end}&order=detected_at.desc"
         else:
@@ -229,15 +248,43 @@ def get_all_users():
 
 def get_active_users():
     from datetime import datetime, timezone
-    now = datetime.now(timezone.utc).isoformat().replace('+', '%2B')
-    url = f"{SUPABASE_URL}/user_settings?valid_until=gt.{now}"
-    try:
-        res = session.get(url, headers=headers, timeout=10)
-        res.raise_for_status()
-        return res.json()
-    except Exception as e:
-        print(f"Error getting active users: {e}")
-        return []
+    now = datetime.now(timezone.utc)
+    users = get_all_users()
+    active = []
+    for u in users:
+        if u.get('role') == 'admin':
+            active.append(u)
+            continue
+        v_str = u.get('valid_until', '2000-01-01T00:00:00Z')
+        try:
+            valid_until = datetime.fromisoformat(v_str.replace('Z', '+00:00'))
+            if valid_until.tzinfo is None:
+                valid_until = valid_until.replace(tzinfo=timezone.utc)
+            if valid_until > now:
+                active.append(u)
+        except Exception:
+            continue
+    return active
+
+def get_expired_users():
+    """Ambil semua user non-admin yang masa aktifnya sudah habis / belum aktif."""
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    users = get_all_users()
+    expired = []
+    for u in users:
+        if u.get('role') == 'admin':
+            continue
+        v_str = u.get('valid_until', '2000-01-01T00:00:00Z')
+        try:
+            valid_until = datetime.fromisoformat(v_str.replace('Z', '+00:00'))
+            if valid_until.tzinfo is None:
+                valid_until = valid_until.replace(tzinfo=timezone.utc)
+            if valid_until <= now:
+                expired.append(u)
+        except Exception:
+            expired.append(u)
+    return expired
 
 def update_subscription(chat_id, plan_type, valid_until, reminder_sent=""):
     payload = {
