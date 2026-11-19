@@ -28,6 +28,17 @@ class MonitorRegressionTests(unittest.TestCase):
         self.assertEqual(count, 1)
         self.assertEqual([event["event_type"] for event in events], ["restock"])
 
+    def test_stock_snapshot_preserves_erp_product_name_and_color(self):
+        name = "(Couple) Produk Juni Beryl SIZE L"
+        catalog = [{"name": name, "status": "Aman", "selling_price": 150000}]
+        stock = [{"product_name": "Produk Juni", "color": "Beryl", "reseller_price": 100000}]
+        with patch.object(monitor, "_fetch_paginated", side_effect=[catalog, stock, catalog, None]):
+            synced = monitor.fetch_all()
+            fallback = monitor.fetch_all(synced)
+        self.assertEqual(synced[name]["product_name"], "Produk Juni")
+        self.assertEqual(synced[name]["color"], "Beryl")
+        self.assertEqual(fallback, synced)
+
     def test_first_reseller_price_does_not_trigger_a_price_change(self):
         old = {"Produk": {"stock": "Aman", "harga": "Rp 150.000", "catalog_price": True}}
         new = {"Produk": {"stock": "Aman", "harga": "Rp 100.000"}}

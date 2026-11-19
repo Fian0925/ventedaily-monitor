@@ -137,6 +137,29 @@ def _ordered_sizes(sizes_dict):
     return ordered + extras
 
 
+PRODUCT_COLORS = (
+    'Dusty Pink', 'Baby Pink', 'Baby Blue', 'Cool Mint', 'Deep Red',
+    'Dark Grey', 'Light Grey', 'Army Green', 'Soft Pink', 'Hot Pink',
+    'Dusty Purple', 'Cream Gold', 'Dark Brown', 'Dark Choco',
+    'Idul Fitri', 'Light Brown', 'Broken White', 'Off White', 'Sage Green',
+    'Emerald Green', 'Royal Blue', 'Sky Blue', 'Dusty Blue', 'Rose Gold',
+    'Choco', 'Purple', 'Maroon', 'Navy', 'Cream', 'White', 'Black',
+    'Grey', 'Green', 'Blue', 'Red', 'Pink', 'Brown', 'Orange',
+    'Mustard', 'Olive', 'Tosca', 'Sage', 'Lilac', 'Mocca',
+    'Charcoal', 'Lavender', 'Burgundy', 'Khaki', 'Peach', 'Coral',
+    'Caramel', 'Coffee', 'Denim', 'Plum', 'Hazelnut', 'Espresso',
+    'Coksu', 'Mint', 'Milo', 'Teracotta', 'Terracotta', 'Mauve', 'Nude', 'Oat',
+)
+
+
+def split_product_color(base, colors=PRODUCT_COLORS):
+    normalized = base.casefold()
+    for color in colors:
+        if normalized.endswith(" " + color.casefold()):
+            return base[:-len(color)].rstrip(), color
+    return base, ""
+
+
 def _group_products_by_variant(products):
     """
     Kelompokkan produk berdasarkan varian (nama tanpa SIZE) dan warna.
@@ -145,32 +168,11 @@ def _group_products_by_variant(products):
     """
     groups = defaultdict(lambda: defaultdict(dict))
 
-    color_keywords = [
-        'Dusty Pink', 'Baby Pink', 'Baby Blue', 'Cool Mint', 'Deep Red',
-        'Dark Grey', 'Light Grey', 'Army Green', 'Soft Pink', 'Hot Pink',
-        'Dusty Purple', 'Cream Gold', 'Dark Brown', 'Dark Choco',
-        'Idul Fitri', 'Light Brown', 'Broken White', 'Off White', 'Sage Green',
-        'Emerald Green', 'Royal Blue', 'Sky Blue', 'Dusty Blue', 'Rose Gold',
-        'Choco', 'Purple', 'Maroon', 'Navy', 'Cream', 'White', 'Black',
-        'Grey', 'Green', 'Blue', 'Red', 'Pink', 'Brown', 'Orange',
-        'Mustard', 'Olive', 'Tosca', 'Sage', 'Lilac', 'Mocca',
-        'Charcoal', 'Lavender', 'Burgundy', 'Khaki', 'Peach', 'Coral',
-        'Caramel', 'Coffee', 'Denim', 'Plum', 'Hazelnut', 'Espresso',
-        'Coksu', 'Mint', 'Milo', 'Teracotta', 'Terracotta', 'Mauve', 'Nude', 'Oat',
-    ]
-
     for nama, info in products:
         base, size = split_product_size(nama)
 
-        warna = "-"
-        variant_base = base
-        for color in color_keywords:
-            if base.lower().endswith(" " + color.lower()):
-                warna = color
-                variant_base = base[:-(len(color))].strip()
-                break
-
-        groups[variant_base, info['harga']][warna][size] = info['stock']
+        variant_base, color = split_product_color(base)
+        groups[variant_base, info['harga']][color or "-"][size] = info['stock']
 
     return groups
 

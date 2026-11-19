@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import json
+import re
 import time
 from urllib.parse import parse_qsl, urlsplit
 
@@ -15,6 +16,14 @@ import database
 
 mini_app = Blueprint("mini_app", __name__, url_prefix="/mini")
 AUTH_MAX_AGE_SECONDS = 3600
+CATALOG_COLORS = sorted((*commands.PRODUCT_COLORS,
+    'Taupe', 'Stone', 'Mahogany', 'Creame', 'Latte', 'Rose', 'Peanut', 'Avocado',
+    'Rosewood', 'Emerald', 'Bone', 'Vanilla', 'Cappucino', 'Almond', 'Berry',
+    'Beige', 'Ocean', 'Millo', 'Army', 'Smoke', 'Matcha', 'Blush', 'Grape',
+    'Wood', 'Salem', 'Dove', 'Moccachino', 'Butter', 'Lemon', 'Midnight',
+    'Pistacio', 'Orchid', 'Cherry', 'Terracota', 'Frappucino', 'Turqoise',
+    'Redwood', 'Gold', 'Walnut', 'Sand', 'Mocha',
+), key=len, reverse=True)
 
 
 def verify_telegram_user(init_data, bot_token, now):
@@ -112,9 +121,15 @@ def snapshot_products():
 
 def product_details(name, item):
     base, size = commands.split_product_size(name)
+    base = re.sub(r"^\([^)]+\)\s*", "", base)
+    if size == "-" and (size_suffix := re.search(r"\s+(ALL|FREE)\s+SIZE$", base, re.IGNORECASE)):
+        size = size_suffix.group(0).strip().upper()
+        base = base[:size_suffix.start()]
+    product_name, color = commands.split_product_color(base, CATALOG_COLORS)
     return {
         "id": name,
-        "name": base,
+        "name": item.get("product_name") or product_name,
+        "color": item.get("color") or color,
         "size": size if size != "-" else "Semua ukuran",
         "stock": item.get("stock", ""),
         "price": item.get("harga", ""),

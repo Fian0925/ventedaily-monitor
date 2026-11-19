@@ -3,12 +3,12 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <meta name="theme-color" content="#f5f5ef">
+    <meta name="theme-color" content="#f7f8f5">
     <meta name="color-scheme" content="light">
     <title>Ventedaily — Dashboard Reseller</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='mini-app/dashboard.css') }}">
     <script src="https://telegram.org/js/telegram-web-app.js?59" defer></script>
     <script src="{{ url_for('static', filename='mini-app/dashboard.js') }}" defer></script>
@@ -20,20 +20,11 @@
                 <span class="brand-mark" aria-hidden="true">V</span>
                 <span>ventedaily<span class="brand-period">.</span></span>
             </a>
-            <span id="mode" class="mode"><span aria-hidden="true"></span>Dashboard reseller</span>
+            <span id="mode" class="mode" hidden>Mode demo</span>
         </div>
     </header>
 
     <main id="main" class="shell">
-        <section class="hero" aria-labelledby="title">
-            <div class="hero-copy">
-                <span class="hero-label">VENTEDAILY MONITOR</span>
-                <h1 id="title">Ruang kerja<br><em>reseller.</em></h1>
-                <p>Cek stok per varian, pantau restock, dan siapkan katalog untuk pelangganmu.</p>
-            </div>
-            <div class="hero-image" aria-hidden="true"></div>
-        </section>
-
         <nav class="tabs" aria-label="Menu dashboard">
             <button type="button" data-view="stock" aria-controls="stock" aria-current="page"><span class="nav-icon icon-search" aria-hidden="true"></span>Cari Stok</button>
             <button type="button" data-view="watch" aria-controls="watch"><span class="nav-icon icon-bell" aria-hidden="true"></span>Pantauan Saya<span id="watch-count" class="count" hidden>0</span></button>
@@ -47,14 +38,18 @@
 
         <section id="stock" class="view" aria-labelledby="stock-title">
             <div class="view-header">
-                <div><h2 id="stock-title">Ketersediaan stok</h2><p id="stock-time">Memuat stok…</p></div>
+                <div><h1 id="stock-title">Cari stok</h1><p id="stock-time">Memuat stok…</p></div>
                 <button id="refresh" class="button secondary" type="button" hidden>Muat ulang</button>
             </div>
             <div class="filters">
                 <label class="search-field">
                     <span class="nav-icon icon-search" aria-hidden="true"></span>
-                    <span class="sr-only">Cari nama atau warna produk</span>
-                    <input id="query" type="search" placeholder="Cari nama atau warna produk" autocomplete="off">
+                    <span class="sr-only">Cari nama produk</span>
+                    <input id="query" type="search" placeholder="Cari nama produk" autocomplete="off">
+                </label>
+                <label class="select-field">
+                    <span class="sr-only">Filter warna</span>
+                    <select id="color"><option value="">Semua warna</option></select>
                 </label>
                 <label class="select-field">
                     <span class="sr-only">Filter ukuran</span>
@@ -65,17 +60,22 @@
                     <select id="status">
                         <option value="">Semua stok</option>
                         <option value="available">Tersedia</option>
+                        <option value="ready">Stok terbatas</option>
                         <option value="habis">Habis</option>
                     </select>
                 </label>
             </div>
-            <div class="list" id="stock-list" aria-label="Hasil pencarian" aria-live="polite"></div>
-            <button id="more" class="button secondary more" type="button" hidden>Tampilkan lebih banyak</button>
+            <div id="stock-list" class="carousel" role="region" aria-label="Produk" tabindex="0"></div>
+            <div id="carousel-controls" class="carousel-controls" hidden>
+                <button id="previous" class="button secondary" type="button" aria-controls="stock-list">Sebelumnya</button>
+                <span id="carousel-position" aria-live="polite"></span>
+                <button id="next" class="button secondary" type="button" aria-controls="stock-list">Berikutnya</button>
+            </div>
         </section>
 
         <section id="watch" class="view" aria-labelledby="watch-title" hidden>
             <div class="view-header">
-                <div><h2 id="watch-title">Pantauan saya</h2><p>Notifikasi Telegram dikirim saat varian pantauan kembali tersedia.</p></div>
+                <div><h2 id="watch-title">Pantauan saya</h2><p id="watch-description">Notifikasi Telegram dikirim saat varian pantauan kembali tersedia.</p></div>
             </div>
             <div class="list" id="watch-list"></div>
         </section>

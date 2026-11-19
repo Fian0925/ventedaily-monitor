@@ -10,21 +10,26 @@ const sizeOrder = ["XXS", "XS", "S", "M", "L", "XL", "XXL", "XXXL", "ALL SIZE", 
 let products = [];
 let watchlist = new Map();
 const selection = new Set();
-let visible = 12;
+const selectedVariants = new Map();
+const CARD_BATCH = 12;
+let filteredGroups = [];
+let carouselIndex = 0;
 let loaded = false;
 let activeView = "stock";
 let feedbackTimer;
 
 const examples = [
-    ["Sasmita Navy", "L", "Aman", "Rp 149.000"],
-    ["Sasmita Navy", "XL", "Habis", "Rp 149.000"],
-    ["Aruna Sage", "M", "Ready", "Rp 164.000"],
-    ["Aruna Sage", "L", "Aman", "Rp 164.000"],
-    ["Kirana Mauve", "M", "Aman", "Rp 159.000"],
-    ["Kirana Mauve", "L", "Habis", "Rp 159.000"],
-    ["Nala Sand", "ALL SIZE", "Ready", "Rp 99.000"],
-    ["Alea Mocha", "ALL SIZE", "Aman", "Rp 119.000"],
-].map(([name, size, stock, price]) => ({id: `${name} SIZE ${size}`, name, size, stock, price}));
+    ["Sasmita", "Navy", "L", "Aman", "Rp 149.000"],
+    ["Sasmita", "Navy", "XL", "Habis", "Rp 149.000"],
+    ["Sasmita", "Black", "M", "Ready", "Rp 149.000"],
+    ["Aruna", "Sage", "M", "Ready", "Rp 164.000"],
+    ["Aruna", "Sage", "L", "Aman", "Rp 164.000"],
+    ["Aruna", "Cream", "L", "Habis", "Rp 169.000"],
+    ["Kirana", "Mauve", "M", "Aman", "Rp 159.000"],
+    ["Kirana", "Mauve", "L", "Habis", "Rp 159.000"],
+    ["Nala", "Sand", "ALL SIZE", "Ready", "Rp 99.000"],
+    ["Alea", "Mocha", "ALL SIZE", "Aman", "Rp 119.000"],
+].map(([name, color, size, stock, price]) => ({id: `${name} ${color} SIZE ${size}`, name, color, size, stock, price}));
 
 function node(tag, className, text) {
     const element = document.createElement(tag);
@@ -111,64 +116,166 @@ function handleError(error) {
     }
 }
 
-function swatchColor(name) {
-    if (/navy|blue|denim/i.test(name)) return "blue";
-    if (/mauve|rose|pink|lilac/i.test(name)) return "rose";
-    if (/sand|mocha|brown|cream/i.test(name)) return "earth";
-    return "";
+function variantActionButtons(product, context) {
+    const buttons = [];
+    if (context !== "catalog") {
+        const watched = watchlist.has(product.id);
+        const label = context === "watch" ? "Hapus pantauan" : watched ? "Dipantau" : "Pantau";
+        const toggle = action(label, (button) => toggleWatch(product, button, !watched), watched && context === "stock");
+        if (context === "stock") toggle.setAttribute("aria-pressed", String(watched));
+        buttons.push(toggle);
+    }
+    if (context === "catalog" || (context === "stock" && available(product))) {
+        const selected = selection.has(product.id);
+        const label = context === "catalog" ? "Hapus" : selected ? "Dipilih" : "Ke katalog";
+        const toggle = action(label, () => toggleProduct(product), selected && context === "stock");
+        if (context === "stock") toggle.setAttribute("aria-pressed", String(selected));
+        buttons.push(toggle);
+    }
+    return buttons;
+}
+
+function stockPill(product) {
+    const [label, style] = stockInfo(product.stock);
+    return node("span", `pill ${style}`, label);
 }
 
 function productRow(product, context, lastRestock = null) {
     const row = node("article", "product");
-    const swatch = node("div", `swatch ${swatchColor(product.name)}`, product.name.charAt(0).toUpperCase());
-    swatch.setAttribute("aria-hidden", "true");
     const info = node("div");
     info.append(node("h3", "", product.name));
     const meta = node("div", "meta");
-    const [label, pill] = stockInfo(product.stock);
-    meta.append(node("span", "", formatSize(product.size)), node("span", `pill ${pill}`, label));
+    const variant = [product.color, formatSize(product.size)].filter(Boolean).join(" · ");
+    meta.append(node("span", "", variant), stockPill(product));
     if (context === "watch") {
         const date = formatDate(lastRestock);
         meta.append(node("span", "", date ? `Restock ${date}` : "Belum ada riwayat restock"));
     }
     info.append(meta);
-    const options = node("div", "actions");
-    if (context !== "catalog") {
-        const watched = watchlist.has(product.id);
-        const toggle = action(context === "watch" ? "Hapus pantauan" : watched ? "Dipantau" : "Pantau",
-            (button) => toggleWatch(product, button, !watched), watched && context === "stock");
-        if (context === "stock") toggle.setAttribute("aria-pressed", String(watched));
-        options.append(toggle);
-    }
-    if ((context === "stock" && available(product)) || context === "catalog") {
-        const selected = selection.has(product.id);
-        options.append(action(context === "catalog" ? "Hapus" : selected ? "Dipilih" : "Ke katalog",
-            () => toggleProduct(product), selected && context === "stock"));
-    }
-    row.append(swatch, info, node("div", "price", product.price || "—"), options);
+    const actions = node("div", "actions");
+    actions.append(...variantActionButtons(product, context));
+    row.append(info, node("div", "price", product.price || "—"), actions);
     return row;
+}
+
+function productCard(group) {
+    const card = node("article", "product-card");
+    card.append(node("h3", "", group.name));
+    const picker = node("select");
+    const label = node("label", "variant-field");
+    const field = node("span", "select-field variant-picker");
+    label.append(node("span", "variant-label", "Varian"), field);
+    field.append(picker);
+    const details = node("div", "variant-details");
+    details.setAttribute("aria-live", "polite");
+    const actions = node("div", "actions");
+    const variants = new Map(group.variants.map((product) => [product.id, product]));
+    for (const product of variants.values()) {
+        const title = [product.color, formatSize(product.size), stockInfo(product.stock)[0]].filter(Boolean).join(" · ");
+        picker.add(new Option(title, product.id));
+    }
+    const selected = selectedVariants.get(group.key);
+    const defaultVariant = group.variants.find(available) || group.variants[0];
+    picker.value = variants.has(selected) ? selected : defaultVariant.id;
+
+    function displayVariant() {
+        const product = variants.get(picker.value);
+        details.replaceChildren(stockPill(product), node("span", "price", product.price || "Harga belum tersedia"));
+        actions.replaceChildren(...variantActionButtons(product, "stock"));
+    }
+
+    picker.addEventListener("change", () => {
+        selectedVariants.set(group.key, picker.value);
+        displayVariant();
+    });
+    displayVariant();
+    card.append(label, details, actions);
+    return card;
 }
 
 function empty(list, message) {
     $(list).replaceChildren(node("p", "empty", message));
 }
 
-function renderStock() {
-    const query = $("query").value.trim().toLowerCase();
+function colorKey(value) {
+    return value ? value.toLocaleLowerCase("id") : "";
+}
+
+function groupMatchingProducts() {
+    const terms = $("query").value.trim().toLocaleLowerCase("id").split(/\s+/).filter(Boolean);
+    const color = $("color").value;
     const size = $("size").value;
     const status = $("status").value;
-    const terms = query.split(/\s+/).filter(Boolean);
-    const matches = products.filter((product) => (
-        terms.every((term) => product.id.toLowerCase().includes(term))
-        && (!size || product.size === size)
-        && (!status || (status === "available" ? available(product) : product.stock.toLowerCase() === status))
-    ));
-    $("more").hidden = matches.length <= visible;
-    if (!matches.length) {
-        empty("stock-list", loaded ? "Tidak ada varian yang cocok." : "Stok belum dimuat.");
+    const groups = new Map();
+
+    for (const product of products) {
+        const keywords = `${product.name} ${product.color || ""} ${product.size}`.toLocaleLowerCase("id");
+        if ((color && colorKey(product.color) !== color)
+                || (size && product.size !== size)
+                || (status && (status === "available" ? !available(product) : product.stock.toLowerCase() !== status))
+                || !terms.every((term) => keywords.includes(term))) continue;
+        const key = product.name.toLocaleLowerCase("id");
+        if (!groups.has(key)) groups.set(key, {key, name: product.name, variants: []});
+        groups.get(key).variants.push(product);
+    }
+
+    return [...groups.values()].sort((left, right) => left.name.localeCompare(right.name, "id", {numeric: true}));
+}
+
+function appendCards(count) {
+    const carousel = $("stock-list");
+    const start = carousel.children.length;
+    const end = Math.min(filteredGroups.length, Math.max(start, count));
+    for (const group of filteredGroups.slice(start, end)) carousel.append(productCard(group));
+}
+
+function cardOffset(index) {
+    const cards = $("stock-list").children;
+    return cards[index].offsetLeft - cards[0].offsetLeft;
+}
+
+function showCarouselPosition() {
+    $("carousel-controls").hidden = filteredGroups.length < 2;
+    $("previous").disabled = carouselIndex === 0;
+    $("next").disabled = carouselIndex >= filteredGroups.length - 1;
+    $("carousel-position").textContent = `${carouselIndex + 1} / ${filteredGroups.length}`;
+    for (const [index, card] of Array.from($("stock-list").children).entries()) {
+        card.toggleAttribute("inert", index !== carouselIndex);
+    }
+}
+
+function moveCarousel(index) {
+    if (!filteredGroups.length) return;
+    carouselIndex = Math.max(0, Math.min(index, filteredGroups.length - 1));
+    if (carouselIndex + 3 >= $("stock-list").children.length) appendCards(carouselIndex + CARD_BATCH);
+    $("stock-list").scrollLeft = cardOffset(carouselIndex);
+    showCarouselPosition();
+}
+
+function onCarouselScroll() {
+    const carousel = $("stock-list");
+    if (carousel.children.length < 2) return;
+    const spacing = cardOffset(1);
+    if (spacing <= 0) return;
+    const index = Math.max(0, Math.min(carousel.children.length - 1, Math.round(carousel.scrollLeft / spacing)));
+    if (index === carouselIndex) return;
+    carouselIndex = index;
+    if (index + 3 >= carousel.children.length) appendCards(index + CARD_BATCH);
+    showCarouselPosition();
+}
+
+function renderStock() {
+    const carousel = $("stock-list");
+    filteredGroups = groupMatchingProducts();
+    if (!filteredGroups.length) {
+        carouselIndex = 0;
+        $("carousel-controls").hidden = true;
+        empty("stock-list", loaded ? "Tidak ada produk yang cocok." : "Stok belum dimuat.");
         return;
     }
-    $("stock-list").replaceChildren(...matches.slice(0, visible).map((product) => productRow(product, "stock")));
+    carousel.replaceChildren();
+    appendCards(Math.min(filteredGroups.length, carouselIndex + CARD_BATCH));
+    moveCarousel(carouselIndex);
 }
 
 function renderLists() {
@@ -222,6 +329,13 @@ async function toggleWatch(product, button, enabled) {
     }
 }
 
+function setFilterOptions(id, placeholder, values, label) {
+    const select = $(id);
+    const previous = select.value;
+    select.replaceChildren(new Option(placeholder, ""), ...values.map((value) => new Option(label(value), value)));
+    select.value = values.includes(previous) ? previous : "";
+}
+
 function setProducts(items) {
     products = items;
     const sizes = Array.from(new Set(products.map(({size}) => size)));
@@ -229,14 +343,10 @@ function setProducts(items) {
         const rank = (size) => sizeOrder.includes(size) ? sizeOrder.indexOf(size) : sizeOrder.length;
         return rank(left) - rank(right) || left.localeCompare(right, "id", {numeric: true});
     });
-    const options = sizes.map((size) => {
-        const option = node("option", "", formatSize(size));
-        option.value = size;
-        return option;
-    });
-    const previous = $("size").value;
-    $("size").replaceChildren(new Option("Semua ukuran", ""), ...options);
-    $("size").value = sizes.includes(previous) ? previous : "";
+    setFilterOptions("size", "Semua ukuran", sizes, formatSize);
+    const colors = new Map(products.filter(({color}) => color).map(({color}) => [colorKey(color), color]));
+    const orderedColors = Array.from(colors.keys()).sort((left, right) => left.localeCompare(right, "id"));
+    setFilterOptions("color", "Semua warna", orderedColors, (key) => colors.get(key));
 }
 
 async function load() {
@@ -245,6 +355,7 @@ async function load() {
     try {
         const data = demo ? {products: examples, watchlist: []} : await api("dashboard");
         setProducts(data.products);
+        carouselIndex = 0;
         watchlist = new Map(data.watchlist.map((item) => [item.product_name, item]));
         loaded = true;
         $("catalog-preview").hidden = true;
@@ -269,7 +380,7 @@ async function makeCatalog() {
         let result;
         if (demo) {
             const lines = products.filter(({id}) => selection.has(id))
-                .map((item) => `• ${item.name} (${formatSize(item.size)}) — ${item.price}`);
+                .map((item) => `• ${item.name} ${item.color} (${formatSize(item.size)}) — ${item.price}`);
             result = {text: ["CONTOH KATALOG", "", ...lines].join("\n")};
         } else {
             result = await api("catalog", "POST", {products: [...selection]});
@@ -304,17 +415,22 @@ async function copyCatalog() {
 for (const button of document.querySelectorAll("[data-view]")) {
     button.addEventListener("click", () => changeView(button.dataset.view));
 }
-for (const id of ["query", "size", "status"]) {
-    $(id).addEventListener(id === "query" ? "input" : "change", () => { visible = 12; renderStock(); });
+for (const id of ["query", "color", "size", "status"]) {
+    $(id).addEventListener(id === "query" ? "input" : "change", () => {
+        carouselIndex = 0;
+        renderStock();
+    });
 }
+$("stock-list").addEventListener("scroll", onCarouselScroll, {passive: true});
+$("previous").addEventListener("click", () => moveCarousel(carouselIndex - 1));
+$("next").addEventListener("click", () => moveCarousel(carouselIndex + 1));
 $("refresh").addEventListener("click", load);
-$("more").addEventListener("click", () => { visible += 12; renderStock(); });
 $("make-catalog").addEventListener("click", makeCatalog);
 $("copy").addEventListener("click", copyCatalog);
 
 if (demo) {
-    $("mode").classList.add("is-demo");
-    $("mode").replaceChildren(node("span"), document.createTextNode("Mode demo"));
+    $("mode").hidden = false;
+    $("watch-description").textContent = "Pantauan contoh tersimpan selama halaman ini terbuka.";
 } else {
     $("refresh").hidden = false;
     telegram.ready();

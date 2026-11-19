@@ -112,6 +112,7 @@ def fetch_all(previous_data=None):
     # Stock product_name format: "Abimaya Dad", color: "Blue"
     # → price_key: "abimaya dad blue"
     price_lookup = {}
+    identity_lookup = {}
     if stock_items:
         for s in stock_items:
             pn = s.get("product_name", "").strip()
@@ -119,6 +120,8 @@ def fetch_all(previous_data=None):
             pn = pn.replace("[DEFECT]", "").replace("(Defect)", "").strip()
             color = s.get("color", "").strip()
             price_key = f"{pn.lower()} {color.lower()}".strip()
+            if pn and color:
+                identity_lookup[price_key] = {"product_name": pn, "color": color}
             reseller = s.get("reseller_price", 0)
             # Prioritaskan harga tertinggi (produk normal, bukan defect)
             if price_key not in price_lookup or reseller > price_lookup[price_key]:
@@ -159,18 +162,24 @@ def fetch_all(previous_data=None):
         name_for_lookup = name_no_cat.lower()
 
         reseller_price = price_lookup.get(name_for_lookup, 0)
+        previous = previous_data.get(nama, {})
 
         if reseller_price > 0:
             harga = f"Rp {reseller_price:,}".replace(",", ".")
             data[nama] = {"stock": status, "harga": harga}
         else:
-            previous = previous_data.get(nama, {})
             if previous.get("harga") and not previous.get("catalog_price"):
                 data[nama] = {"stock": status, "harga": previous["harga"]}
             else:
                 harga = f"Rp {selling_price:,}".replace(",", ".")
                 data[nama] = {"stock": status, "harga": harga, "catalog_price": True}
                 price_miss += 1
+
+        identity = identity_lookup.get(name_for_lookup)
+        if identity:
+            data[nama].update(identity)
+        elif previous.get("product_name") and previous.get("color"):
+            data[nama].update(product_name=previous["product_name"], color=previous["color"])
 
     print(f"  Info: {price_miss} produk pakai harga fallback (tidak cocok di stock)")
     print(f"Selesai! Total {len(data)} varian dari catalog, {len(price_lookup)} harga reseller dari stock.")

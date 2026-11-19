@@ -44,9 +44,8 @@ class MiniAppTests(unittest.TestCase):
         self.assertEqual(page.status_code, 200)
         self.assertIn(b"Pantauan Saya", page.data)
         self.assertIn(b"dashboard.js", page.data)
-        photo = self.client.get("/static/mini-app/textile.webp")
-        self.addCleanup(photo.close)
-        self.assertEqual(photo.status_code, 200)
+        self.assertIn(b'aria-label="Produk"', page.data)
+        self.assertIn(b'id="color"', page.data)
 
     def test_require_signed_recent_telegram_data(self):
         old = init_data(auth_date=int(time.time()) - 7200)
@@ -78,10 +77,23 @@ class MiniAppTests(unittest.TestCase):
         ):
             response = self.client.get("/mini/api/dashboard", headers=self.headers)
         data = response.get_json()
-        self.assertEqual(data["watchlist"][0]["product"]["size"], "L")
+        product = data["watchlist"][0]["product"]
+        self.assertEqual((product["name"], product["color"], product["size"]), ("Produk", "Navy", "L"))
         self.assertEqual(data["products"][1]["stock"], "Habis")
         self.assertIn("no-store", response.headers["Cache-Control"])
         rpc.assert_called_once_with("get_mini_watchlist", {"p_chat_id": "42"})
+
+    def test_product_details_group_legacy_colors_and_prefer_erp_metadata(self):
+        legacy = mini_app.product_details("(Glamloc) Arfina Set Rok Taupe ALL SIZE", {})
+        self.assertEqual(
+            (legacy["name"], legacy["color"], legacy["size"]),
+            ("Arfina Set Rok", "Taupe", "ALL SIZE"),
+        )
+        synced = mini_app.product_details("Produk Juni Beryl SIZE L", {
+            "product_name": "Produk Juni",
+            "color": "Beryl",
+        })
+        self.assertEqual((synced["name"], synced["color"], synced["size"]), ("Produk Juni", "Beryl", "L"))
 
     def test_watchlist_mutations_use_the_signed_chat_id(self):
         product = "Produk Navy SIZE Size L"
