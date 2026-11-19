@@ -45,7 +45,7 @@ class MiniAppTests(unittest.TestCase):
         self.assertIn(b"Pantauan", page.data)
         self.assertIn(b"dashboard.js", page.data)
         self.assertIn(b'aria-label="Produk"', page.data)
-        self.assertIn(b'id="color"', page.data)
+        self.assertIn(b'id="category"', page.data)
 
     def test_require_signed_recent_telegram_data(self):
         old = init_data(auth_date=int(time.time()) - 7200)
@@ -86,9 +86,11 @@ class MiniAppTests(unittest.TestCase):
     def test_product_details_group_legacy_colors_and_prefer_erp_metadata(self):
         legacy = mini_app.product_details("(Glamloc) Arfina Set Rok Taupe ALL SIZE", {})
         self.assertEqual(
-            (legacy["name"], legacy["color"], legacy["size"]),
-            ("Arfina Set Rok", "Taupe", "ALL SIZE"),
+            (legacy["name"], legacy["color"], legacy["size"], legacy["category"]),
+            ("Arfina Set Rok", "Taupe", "ALL SIZE", "Glamloc"),
         )
+        self.assertEqual(mini_app.product_details("(Tunik Brukat) Ayu Navy SIZE M", {})["category"], "Tunik Brukat")
+        self.assertEqual(mini_app.product_details("Ayu Navy SIZE M", {})["category"], "")
         synced = mini_app.product_details("Produk Juni Beryl SIZE L", {
             "product_name": "Produk Juni",
             "color": "Beryl",

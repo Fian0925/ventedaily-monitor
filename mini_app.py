@@ -121,7 +121,11 @@ def snapshot_products():
 
 def product_details(name, item):
     base, size = commands.split_product_size(name)
-    base = re.sub(r"^\([^)]+\)\s*", "", base)
+    category_match = re.match(r"^\(([^)]+)\)\s*", base)
+    category = ""
+    if category_match:
+        category = category_match.group(1).strip()
+        base = base[category_match.end():]
     if size == "-" and (size_suffix := re.search(r"\s+(ALL|FREE)\s+SIZE$", base, re.IGNORECASE)):
         size = size_suffix.group(0).strip().upper()
         base = base[:size_suffix.start()]
@@ -130,6 +134,7 @@ def product_details(name, item):
         "id": name,
         "name": item.get("product_name") or product_name,
         "color": item.get("color") or color,
+        "category": category,
         "size": size if size != "-" else "Semua ukuran",
         "stock": item.get("stock", ""),
         "price": item.get("harga", ""),

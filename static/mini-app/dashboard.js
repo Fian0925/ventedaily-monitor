@@ -12,7 +12,7 @@ let watchlist = new Map();
 const selection = new Set();
 const selectedVariants = new Map();
 const CARD_BATCH = 12;
-const filterIds = ["query", "color", "size", "status"];
+const filterIds = ["query", "category", "color", "size", "status"];
 let filteredGroups = [];
 let carouselIndex = 0;
 let loaded = false;
@@ -20,22 +20,23 @@ let activeView = "stock";
 let feedbackTimer;
 
 const examples = [
-    ["Sasmita", "Navy", "L", "Aman", "Rp 149.000"],
-    ["Sasmita", "Navy", "XL", "Habis", "Rp 149.000"],
-    ["Sasmita", "Black", "M", "Ready", "Rp 149.000"],
-    ["Aruna", "Sage", "M", "Ready", "Rp 164.000"],
-    ["Aruna", "Sage", "L", "Aman", "Rp 164.000"],
-    ["Aruna", "Cream", "L", "Habis", "Rp 169.000"],
-    ["Kirana", "Mauve", "M", "Aman", "Rp 159.000"],
-    ["Kirana", "Mauve", "L", "Habis", "Rp 159.000"],
-    ["Nala", "Sand", "ALL SIZE", "Ready", "Rp 99.000"],
-    ["Alea", "Mocha", "M", "Aman", "Rp 119.000"],
-    ["Alea", "Mocha", "L", "Aman", "Rp 119.000"],
-    ["Alea", "Mocha", "XL", "Habis", "Rp 119.000"],
-    ["Alea", "Sage", "M", "Ready", "Rp 119.000"],
-    ["Alea", "Sage", "L", "Habis", "Rp 119.000"],
-    ["Alea", "Cream", "M", "Aman", "Rp 125.000"],
-].map(([name, color, size, stock, price]) => ({id: `${name} ${color} SIZE ${size}`, name, color, size, stock, price}));
+    ["Sasmita", "Family", "Navy", "L", "Aman", "Rp 149.000"],
+    ["Sasmita", "Family", "Navy", "XL", "Habis", "Rp 149.000"],
+    ["Sasmita", "Family", "Black", "M", "Ready", "Rp 149.000"],
+    ["Aruna", "Couple", "Sage", "M", "Ready", "Rp 164.000"],
+    ["Aruna", "Couple", "Sage", "L", "Aman", "Rp 164.000"],
+    ["Aruna", "Couple", "Cream", "L", "Habis", "Rp 169.000"],
+    ["Kirana", "Tunik Motif", "Mauve", "M", "Aman", "Rp 159.000"],
+    ["Kirana", "Tunik Motif", "Mauve", "L", "Habis", "Rp 159.000"],
+    ["Nala", "Gamis Motif", "Sand", "ALL SIZE", "Ready", "Rp 99.000"],
+    ["Alea", "Oneset Motif", "Mocha", "M", "Aman", "Rp 119.000"],
+    ["Alea", "Oneset Motif", "Mocha", "L", "Aman", "Rp 119.000"],
+    ["Alea", "Oneset Motif", "Mocha", "XL", "Habis", "Rp 119.000"],
+    ["Alea", "Oneset Motif", "Sage", "M", "Ready", "Rp 119.000"],
+    ["Alea", "Oneset Motif", "Sage", "L", "Habis", "Rp 119.000"],
+    ["Alea", "Oneset Motif", "Cream", "M", "Aman", "Rp 125.000"],
+    ["Box Vente", "Box", "Mint", "ALL SIZE", "Aman", "Rp 35.000"],
+].map(([name, category, color, size, stock, price]) => ({id: `${name} ${color} SIZE ${size}`, name, category, color, size, stock, price}));
 
 function node(tag, className, text) {
     const element = document.createElement(tag);
@@ -83,6 +84,7 @@ function changeView(view) {
         if (id === view) button.setAttribute("aria-current", "page");
         else button.removeAttribute("aria-current");
     }
+    if (view === "stock") moveCarousel(carouselIndex);
     if (window.scrollY > 160) $(view).scrollIntoView({block: "start"});
 }
 
@@ -202,13 +204,15 @@ function productCard(group) {
     const card = node("article", "product-card");
     const main = node("div", "card-main");
     const title = node("header", "card-title");
-    title.append(node("h2", "", group.name), node("p", "variant-count", `${group.variants.length} varian`));
+    const categories = new Set(group.variants.map(({category}) => category).filter(Boolean));
+    const category = categories.size === 1 ? `${[...categories][0]} · ` : "";
+    title.append(node("h2", "", group.name), node("p", "variant-count", `${category}${group.variants.length} varian`));
 
     const colors = variantGroup("Warna");
     const sizes = variantGroup("Ukuran");
     const groupedColors = new Map();
     for (const product of group.variants) {
-        const key = colorKey(product.color);
+        const key = filterKey(product.color);
         if (!groupedColors.has(key)) groupedColors.set(key, []);
         groupedColors.get(key).push(product);
     }
@@ -216,7 +220,7 @@ function productCard(group) {
     main.append(title, colors.field, sizes.field);
 
     const summary = node("div", "card-summary");
-    const details = node("div");
+    const details = node("div", "summary-details");
     details.setAttribute("aria-live", "polite");
     const price = node("p", "summary-price");
     const stock = node("div");
@@ -235,7 +239,7 @@ function productCard(group) {
     }
 
     function showVariant() {
-        const currentColor = colorKey(selected.color);
+        const currentColor = filterKey(selected.color);
         const colorButtons = [];
         for (const [key, variants] of groupedColors) {
             const color = variants[0].color || "Standar";
@@ -267,12 +271,13 @@ function empty(list, message) {
     $(list).replaceChildren(node("p", "empty", message));
 }
 
-function colorKey(value) {
+function filterKey(value) {
     return value ? value.toLocaleLowerCase("id") : "";
 }
 
 function groupMatchingProducts() {
     const terms = $("query").value.trim().toLocaleLowerCase("id").split(/\s+/).filter(Boolean);
+    const category = $("category").value;
     const color = $("color").value;
     const size = $("size").value;
     const status = $("status").value;
@@ -280,7 +285,8 @@ function groupMatchingProducts() {
 
     for (const product of products) {
         const keywords = `${product.name} ${product.color || ""} ${product.size}`.toLocaleLowerCase("id");
-        if ((color && colorKey(product.color) !== color)
+        if ((category && filterKey(product.category) !== category)
+                || (color && filterKey(product.color) !== color)
                 || (size && product.size !== size)
                 || (status && (status === "available" ? !available(product) : product.stock.toLowerCase() !== status))
                 || !terms.every((term) => keywords.includes(term))) continue;
@@ -304,22 +310,35 @@ function cardOffset(index) {
     return cards[index].offsetLeft - cards[0].offsetLeft;
 }
 
-function showCarouselPosition() {
-    $("carousel-controls").hidden = filteredGroups.length < 2;
+function visibleCardCount() {
+    const count = Number(getComputedStyle($("stock-list")).getPropertyValue("--complete-cards")) || 1;
+    return Math.min(filteredGroups.length, count);
+}
+
+function lastCarouselStart(count = visibleCardCount()) {
+    return Math.max(0, filteredGroups.length - count);
+}
+
+function showCarouselPosition(count) {
+    const first = carouselIndex + 1;
+    const last = carouselIndex + count;
+    const range = first === last ? first : `${first}–${last}`;
+    $("carousel-controls").hidden = filteredGroups.length <= count;
     $("previous").disabled = carouselIndex === 0;
-    $("next").disabled = carouselIndex >= filteredGroups.length - 1;
-    $("carousel-position").textContent = `${carouselIndex + 1} dari ${filteredGroups.length}`;
+    $("next").disabled = carouselIndex >= lastCarouselStart(count);
+    $("carousel-position").textContent = `${range} dari ${filteredGroups.length}`;
     for (const [index, card] of Array.from($("stock-list").children).entries()) {
-        card.toggleAttribute("inert", index !== carouselIndex);
+        card.toggleAttribute("inert", index < carouselIndex || index >= last);
     }
 }
 
 function moveCarousel(index) {
     if (!filteredGroups.length) return;
-    carouselIndex = Math.max(0, Math.min(index, filteredGroups.length - 1));
-    if (carouselIndex + 3 >= $("stock-list").children.length) appendCards(carouselIndex + CARD_BATCH);
+    const count = visibleCardCount();
+    carouselIndex = Math.max(0, Math.min(index, lastCarouselStart(count)));
+    if (carouselIndex + count + 1 >= $("stock-list").children.length) appendCards(carouselIndex + CARD_BATCH);
     $("stock-list").scrollLeft = cardOffset(carouselIndex);
-    showCarouselPosition();
+    showCarouselPosition(count);
 }
 
 function onCarouselScroll() {
@@ -327,16 +346,18 @@ function onCarouselScroll() {
     if (carousel.children.length < 2) return;
     const spacing = cardOffset(1);
     if (spacing <= 0) return;
-    const index = Math.max(0, Math.min(carousel.children.length - 1, Math.round(carousel.scrollLeft / spacing)));
+    const count = visibleCardCount();
+    const index = Math.max(0, Math.min(lastCarouselStart(count), Math.round(carousel.scrollLeft / spacing)));
     if (index === carouselIndex) return;
     carouselIndex = index;
-    if (index + 3 >= carousel.children.length) appendCards(index + CARD_BATCH);
-    showCarouselPosition();
+    if (index + count + 1 >= carousel.children.length) appendCards(index + CARD_BATCH);
+    showCarouselPosition(count);
 }
 
 function renderStock() {
     const carousel = $("stock-list");
     filteredGroups = groupMatchingProducts();
+    carousel.classList.toggle("is-single", filteredGroups.length < 2);
     $("result-count").textContent = loaded ? `${filteredGroups.length} produk` : "";
     $("clear-filters").hidden = !filterIds.some((id) => $(id).value);
     if (!filteredGroups.length) {
@@ -416,10 +437,16 @@ function compareSizes(left, right) {
 function setProducts(items) {
     products = items;
     const sizes = Array.from(new Set(products.map(({size}) => size))).sort(compareSizes);
-    setFilterOptions("size", "Semua", sizes, formatSize);
-    const colors = new Map(products.filter(({color}) => color).map(({color}) => [colorKey(color), color]));
-    const orderedColors = Array.from(colors.keys()).sort((left, right) => left.localeCompare(right, "id"));
-    setFilterOptions("color", "Semua", orderedColors, (key) => colors.get(key));
+    setFilterOptions("size", "Semua ukuran", sizes, formatSize);
+    for (const [id, field, placeholder] of [
+        ["category", "category", "Semua jenis"],
+        ["color", "color", "Semua warna"],
+    ]) {
+        const labels = new Map(products.filter((product) => product[field])
+            .map((product) => [filterKey(product[field]), product[field]]));
+        const ordered = [...labels.keys()].sort((left, right) => left.localeCompare(right, "id"));
+        setFilterOptions(id, placeholder, ordered, (key) => labels.get(key));
+    }
 }
 
 async function load() {
@@ -499,6 +526,9 @@ $("clear-filters").addEventListener("click", () => {
     carouselIndex = 0;
     renderStock();
     $("query").focus();
+});
+window.addEventListener("resize", () => {
+    if (activeView === "stock") moveCarousel(carouselIndex);
 });
 $("stock-list").addEventListener("scroll", onCarouselScroll, {passive: true});
 $("stock-list").addEventListener("keydown", (event) => {
