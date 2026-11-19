@@ -106,16 +106,33 @@ class CommandRegressionTests(unittest.TestCase):
             commands._activate_trial_for_user(bot, 42)
         self.assertIn("gagal", bot.send_message.call_args.args[1])
 
-    def test_rupiah_profit_uses_thousands_separator(self):
-        self.assertEqual(calculator.parse_profit("30.000"), ("nominal", 30000))
-        self.assertEqual(calculator.parse_profit("Rp 30.000"), ("nominal", 30000))
-        self.assertEqual(calculator.parse_profit("12,5%"), ("percent", 12.5))
-        with self.assertRaises(ValueError):
-            calculator.parse_profit("nan%")
+    def test_rupiah_profit_accepts_dot_and_comma_grouping(self):
         message = SimpleNamespace(chat=SimpleNamespace(id=42))
-        with patch.object(database, "set_user_markup", return_value=True) as save:
-            commands._save_profit_setting(Mock(), message, "30.000")
-        save.assert_called_once_with(42, "nominal", 30000)
+        for value in ("30000", "30,000", "30.000"):
+            with self.subTest(value=value):
+                self.assertEqual(calculator.parse_profit(value), ("nominal", 30000))
+                with patch.object(database, "set_user_markup", return_value=True) as save:
+                    commands._save_profit_setting(Mock(), message, value)
+                save.assert_called_once_with(42, "nominal", 30000)
+
+        self.assertEqual(calculator.parse_profit("Rp 30.000"), ("nominal", 30000))
+        self.assertEqual(calculator.parse_profit("1,234,567"), ("nominal", 1234567))
+        self.assertEqual(calculator.parse_profit("12,5%"), ("percent", 12.5))
+        for invalid in ("30,00", "1,234.567", "nan%"):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                calculator.parse_profit(invalid)
+
+    def test_hitung_accepts_each_rupiah_format(self):
+        stock = {"Produk SIZE L": {"stock": "Aman", "harga": "Rp 100.000"}}
+        with (
+            patch.object(database, "load_catalog_snapshot", return_value=stock),
+            patch.object(database, "get_user_settings", return_value={}),
+        ):
+            for value in ("30000", "30,000", "30.000"):
+                with self.subTest(value=value):
+                    bot = Mock()
+                    commands._run_hitung(bot, 42, f"produk {value}")
+                    self.assertIn("Target Profit: <b>Rp 30.000</b>", bot.send_message.call_args.args[1])
 
     def test_history_reads_all_pages(self):
         pages = []

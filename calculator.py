@@ -21,7 +21,10 @@ def format_price(price_int):
     """Mengubah integer menjadi format Rupiah"""
     return f"Rp {price_int:,}".replace(",", ".")
 
-NOMINAL_AMOUNT = re.compile(r"(?:rp\.?\s*)?(?:[0-9]+|[0-9]{1,3}(?:\.[0-9]{3})+)", re.I)
+NOMINAL_AMOUNT = re.compile(
+    r"(?:rp\.?\s*)?(?:[0-9]+|[0-9]{1,3}([.,])[0-9]{3}(?:\1[0-9]{3})*)",
+    re.I,
+)
 
 
 def is_nominal_amount(value):
