@@ -24,3 +24,6 @@ CHECK_INTERVAL = 5
 
 # Biaya tambahan per produk (ditambahkan ke modal)
 BIAYA_TAMBAHAN = 1250
+
+# URL HTTPS untuk rute /mini/ pada hosting bot.
+MINI_APP_URL = os.getenv("MINI_APP_URL", "").strip()

@@ -608,6 +608,8 @@ def _set_command_menu(bot) -> None:
         types.BotCommand("status", "Status server"),
         types.BotCommand("help", "Bantuan"),
     ]
+    if config.MINI_APP_URL:
+        commands.insert(1, types.BotCommand("dashboard", "Buka Dashboard stok"))
     try:
         bot.set_my_commands(commands)
     except Exception as exc:

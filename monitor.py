@@ -10,6 +10,7 @@ import config
 import database
 import commands
 import payments
+import mini_app
 
 API_HEADERS = {
     "Accept": "application/json",
@@ -17,6 +18,7 @@ API_HEADERS = {
 }
 
 app = Flask(__name__)
+app.register_blueprint(mini_app.mini_app)
 bot = telebot.TeleBot(config.TELEGRAM_BOT_TOKEN)
 
 @app.route('/')
@@ -551,6 +553,8 @@ def run_scheduler():
     schedule.every().hour.do(check_expirations_job)
     schedule.every().hour.do(lambda: payments.send_h3_expiration_reminders(bot))
     schedule.every(5).minutes.do(lambda: payments.retry_admin_notifications(bot))
+    if mini_app.dashboard_url():
+        schedule.every().minute.do(lambda: mini_app.send_restock_alerts(bot))
     
     # Jadwalkan laporan mingguan tiap Senin jam 08:00
     def weekly_report_job():
@@ -616,6 +620,7 @@ def run_scheduler():
 if __name__ == "__main__":
     # Penting: daftarkan handler payments terlebih dahulu sebelum fallback/pencarian langsung di commands
     payments.register_handlers(bot)
+    mini_app.register_handlers(bot)
     commands.register_handlers(bot)
     
     # Start the background job

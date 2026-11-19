@@ -7,3 +7,9 @@
 5. Jalankan tes lokal dengan `python -m unittest discover -s tests`.
 
 Jika ada invoice lama berstatus `processing`, cocokkan mutasi dan masa aktif pengguna sebelum mengubah statusnya. Versi lama bisa terhenti setelah menambah masa aktif. Invoice yang menunggu verifikasi dan belum memiliki penanda pengiriman dapat memunculkan pengingat admin setelah deploy.
+
+## Telegram Mini App
+
+1. Jalankan [mini_app_setup.sql](mini_app_setup.sql) setelah migrasi Supabase utama. Skrip menambah tabel pantauan varian dan antrean notifikasi restock.
+2. Atur `MINI_APP_URL` di hosting ke URL HTTPS bot yang berakhir dengan `/mini/`. Gunakan alamat publik layanan Flask yang sama.
+3. Deploy versi ini. Buka chat pribadi dengan bot, ketik `/dashboard`, lalu tekan **Buka Dashboard**. Pengguna trial dan pelanggan aktif dapat memakai data asli. Membuka URL langsung di browser akan menampilkan demo dengan data contoh.

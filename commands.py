@@ -91,6 +91,13 @@ def _send_long_message(bot, chat_id, text, reply_to=None, parse_mode="HTML", rep
             bot.send_message(chat_id, ch, parse_mode=parse_mode, reply_markup=mk)
 
 
+def split_product_size(name):
+    match = re.search(r"\s+SIZE\s+(?:Size\s+)?(.+)$", name, re.IGNORECASE)
+    if not match:
+        return name.strip(), "-"
+    return name[:match.start()].strip(), re.sub(r"\s+", " ", match.group(1).strip().upper())
+
+
 def _strip_size_suffix(nama):
     """Hapus akhiran 'SIZE ...' (termasuk 'SIZE Size XL' atau 'SIZE All Size')."""
     return re.sub(r'\s+SIZE\s+.*$', '', nama, flags=re.IGNORECASE).strip()
@@ -138,11 +145,6 @@ def _group_products_by_variant(products):
     """
     groups = defaultdict(lambda: defaultdict(dict))
 
-    size_pattern = re.compile(
-        r'\s+SIZE\s+(?:Size\s+)?(X{0,3}S|X{0,3}L|M|ALL\s*SIZE|FREE\s*SIZE|[0-9]+)\s*$',
-        re.IGNORECASE
-    )
-
     color_keywords = [
         'Dusty Pink', 'Baby Pink', 'Baby Blue', 'Cool Mint', 'Deep Red',
         'Dark Grey', 'Light Grey', 'Army Green', 'Soft Pink', 'Hot Pink',
@@ -158,19 +160,7 @@ def _group_products_by_variant(products):
     ]
 
     for nama, info in products:
-        size_match = size_pattern.search(nama)
-        if size_match:
-            size = re.sub(r'\s+', ' ', size_match.group(1).upper()).strip()
-            base = nama[:size_match.start()].strip()
-        else:
-            # Fallback jika format SIZE tidak standar
-            generic_sz = re.search(r'\s+SIZE\s+(?:Size\s+)?(.+)$', nama, re.IGNORECASE)
-            if generic_sz:
-                size = re.sub(r'\s+', ' ', generic_sz.group(1).upper()).strip()
-                base = nama[:generic_sz.start()].strip()
-            else:
-                size = "-"
-                base = nama.strip()
+        base, size = split_product_size(nama)
 
         warna = "-"
         variant_base = base
