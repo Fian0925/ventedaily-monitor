@@ -1,16 +1,13 @@
-import json
-import os
 import re
 import time
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
+import requests
 from telebot import types
 
 import database
 import calculator
 import config
-
-DATA_FILE = 'data_snapshot.json'
 
 WIB = timezone(timedelta(hours=7))
 
@@ -59,25 +56,6 @@ def _safe_cb(prefix, value):
         return raw
     trimmed = encoded[:64].decode('utf-8', errors='ignore')
     return trimmed
-
-
-def _load_snapshot():
-    """Load data snapshot dari Supabase (fallback ke file lokal jika ada)."""
-    try:
-        data = database.load_snapshot()
-        if data:
-            return data
-    except Exception as e:
-        print(f"Error loading snapshot from Supabase: {e}")
-
-    if not os.path.exists(DATA_FILE):
-        return None
-    try:
-        with open(DATA_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except Exception as e:
-        print(f"Error loading snapshot from file: {e}")
-        return None
 
 
 def _send_long_message(bot, chat_id, text, reply_to=None, parse_mode="HTML", reply_markup=None):
@@ -156,10 +134,9 @@ def _group_products_by_variant(products):
     """
     Kelompokkan produk berdasarkan varian (nama tanpa SIZE) dan warna.
     Input: list of (nama, {stock, harga})
-    Output: dict {base_name: {warna: {size: stock}}}, dict {base_name: harga}
+    Output: dict {(base_name, harga): {warna: {size: stock}}}
     """
     groups = defaultdict(lambda: defaultdict(dict))
-    price_map = {}
 
     size_pattern = re.compile(
         r'\s+SIZE\s+(?:Size\s+)?(X{0,3}S|X{0,3}L|M|ALL\s*SIZE|FREE\s*SIZE|[0-9]+)\s*$',
@@ -203,10 +180,9 @@ def _group_products_by_variant(products):
                 variant_base = base[:-(len(color))].strip()
                 break
 
-        groups[variant_base][warna][size] = info['stock']
-        price_map[variant_base] = info['harga']
+        groups[variant_base, info['harga']][warna][size] = info['stock']
 
-    return groups, price_map
+    return groups
 
 
 def _parse_day_bucket(dt_str):
@@ -235,9 +211,16 @@ def _can_use_trial(settings):
     """Cek apakah user benar-benar baru dan belum pernah memakai trial/langganan/suspend."""
     if settings.get('role') == 'admin':
         return False
-    valid_until = settings.get('valid_until', '2000-01-01T00:00:00Z')
-    plan_type = (settings.get('plan_type') or 'none').strip().lower()
-    return valid_until == '2000-01-01T00:00:00Z' and plan_type in ('', 'none')
+    trial_origin = datetime(2000, 1, 1, tzinfo=timezone.utc)
+    raw_until = settings.get("valid_until")
+    try:
+        valid_until = datetime.fromisoformat(raw_until.replace("Z", "+00:00")) if raw_until else trial_origin
+    except ValueError:
+        return False
+    if valid_until.tzinfo is None:
+        valid_until = valid_until.replace(tzinfo=timezone.utc)
+    plan_type = (settings.get("plan_type") or "none").strip().lower()
+    return valid_until == trial_origin and plan_type in ("", "none")
 
 
 def _check_subscription(bot, message):
@@ -304,12 +287,23 @@ def _activate_trial_for_user(bot, chat_id, reply_to=None):
             bot.send_message(chat_id, msg, parse_mode="HTML", reply_markup=kb)
         return
 
-    now = datetime.now(timezone.utc)
-    new_valid = now + timedelta(days=5)
-    valid_until_str = new_valid.strftime('%Y-%m-%dT%H:%M:%SZ')
+    try:
+        activated_until = database.activate_trial(chat_id)
+        if activated_until:
+            new_valid = datetime.fromisoformat(activated_until.replace("Z", "+00:00"))
+            msg = None
+        else:
+            msg = "⚠️ Trial tidak dapat diaktifkan. Cek status akun lewat /profil."
+    except (requests.RequestException, ValueError) as exc:
+        print(f"Error activating trial: {exc}")
+        msg = "⚠️ Aktivasi trial gagal. Silakan coba lagi."
+    if msg:
+        if reply_to:
+            bot.reply_to(reply_to, msg)
+        else:
+            bot.send_message(chat_id, msg)
+        return
     until_wib = new_valid.astimezone(WIB).strftime('%d %b %Y, %H:%M WIB')
-
-    database.update_subscription(chat_id, "trial", valid_until_str, "")
 
     welcome_trial = (
         "🎉 <b>FREE TRIAL 5 HARI AKTIF!</b>\n"
@@ -337,7 +331,7 @@ def _run_search(bot, chat_id, query, reply_to=None):
             bot.send_message(chat_id, msg, parse_mode="HTML")
         return
 
-    data = _load_snapshot()
+    data = database.load_catalog_snapshot()
     if data is None:
         msg = "⚠️ Data produk sedang dimuat dari server, coba beberapa saat lagi."
         if reply_to:
@@ -368,11 +362,10 @@ def _run_search(bot, chat_id, query, reply_to=None):
         return
 
     reply = f"🔍 <b>Hasil Pencarian: \"{query}\"</b>\n━━━━━━━━━━━━━━━━━━━━━\n\n"
-    groups, price_map = _group_products_by_variant(ready)
+    groups = _group_products_by_variant(ready)
 
-    for variant_base in sorted(groups.keys()):
-        colors = groups[variant_base]
-        harga = price_map.get(variant_base, '')
+    for variant_base, harga in sorted(groups):
+        colors = groups[variant_base, harga]
         reply += f"📦 <b>{variant_base}</b> — {harga}\n"
 
         for warna in sorted(colors.keys()):
@@ -416,7 +409,7 @@ def _run_katalog(bot, chat_id, query, reply_to=None):
             bot.send_message(chat_id, msg, parse_mode="HTML")
         return
 
-    data = _load_snapshot()
+    data = database.load_catalog_snapshot()
     if data is None:
         bot.send_message(chat_id, "⚠️ Data produk belum tersedia.")
         return
@@ -442,11 +435,10 @@ def _run_katalog(bot, chat_id, query, reply_to=None):
     reply += f"📅 Update: {datetime.now(WIB).strftime('%d %b %Y | %H:%M WIB')}\n"
     reply += "━━━━━━━━━━━━━━━━━━━━━\n\n"
 
-    groups, price_map = _group_products_by_variant(ready)
+    groups = _group_products_by_variant(ready)
 
-    for variant_base in sorted(groups.keys()):
-        colors = groups[variant_base]
-        harga_str = price_map.get(variant_base, '')
+    for variant_base, harga_str in sorted(groups):
+        colors = groups[variant_base, harga_str]
 
         if has_markup:
             calc = calculator.calculate_price(harga_str, markup_value, markup_type, admin_fee, config.BIAYA_TAMBAHAN)
@@ -496,6 +488,21 @@ def _run_katalog(bot, chat_id, query, reply_to=None):
         )
 
 
+def _save_profit_setting(bot, message, value):
+    try:
+        profit_type, profit = calculator.parse_profit(value)
+    except ValueError:
+        bot.reply_to(message, "❌ Format salah. Contoh: 20% atau 30.000.")
+        return
+
+    if not database.set_user_markup(message.chat.id, profit_type, profit):
+        bot.reply_to(message, "⚠️ Target profit gagal disimpan. Silakan coba lagi.")
+        return
+
+    label = f"{profit:g}%" if profit_type == "percent" else calculator.format_price(profit)
+    bot.reply_to(message, f"✅ Target profit default disimpan: <b>{label}</b>", parse_mode="HTML")
+
+
 def _run_hitung(bot, chat_id, raw_args_text, reply_to=None):
     """Jalankan kalkulator harga jual marketplace."""
     tokens = raw_args_text.strip().split()
@@ -515,31 +522,26 @@ def _run_hitung(bot, chat_id, raw_args_text, reply_to=None):
             bot.send_message(chat_id, msg, parse_mode="HTML")
         return
 
-    data = _load_snapshot()
+    data = database.load_catalog_snapshot()
     if data is None:
         bot.send_message(chat_id, "⚠️ Data produk belum tersedia.")
         return
 
     profit_str = None
-    profit_val = 0.0
+    profit_val = 0
     profit_type = 'percent'
+    query = " ".join(tokens).lower()
 
     last_arg = tokens[-1]
-    if '%' in last_arg and len(tokens) >= 2:
+    if len(tokens) >= 2 and (last_arg.endswith("%") or calculator.is_nominal_amount(last_arg)):
         try:
-            profit_val = float(last_arg.replace('%', ''))
-            profit_type = 'percent'
-            profit_str = last_arg
-            query = " ".join(tokens[:-1]).strip().lower()
+            profit_type, profit_val = calculator.parse_profit(last_arg)
         except ValueError:
-            query = " ".join(tokens).strip().lower()
-    elif last_arg.isdigit() and len(tokens) >= 2 and int(last_arg) >= 100:
-        profit_val = float(last_arg)
-        profit_type = 'nominal'
-        profit_str = last_arg
-        query = " ".join(tokens[:-1]).strip().lower()
-    else:
-        query = " ".join(tokens).strip().lower()
+            bot.send_message(chat_id, "❌ Target profit tidak valid. Contoh: 20% atau 30.000.")
+            return
+        if profit_type == "percent" or profit_val >= 100:
+            profit_str = last_arg
+            query = " ".join(tokens[:-1]).lower()
 
     if not query:
         bot.send_message(chat_id, "⚠️ Masukkan nama produk. Contoh: <code>/hitung sasmita 20%</code>", parse_mode="HTML")
@@ -634,7 +636,7 @@ def _generate_report(bot, chat_id, reply_to=None):
     new_events = database.get_events('new', 7)
     restock_events = database.get_events('restock', 7)
 
-    data = _load_snapshot()
+    data = database.load_catalog_snapshot()
     total_produk = len(data) if data else 0
 
     if data:
@@ -999,7 +1001,7 @@ def register_handlers(bot):
     # =====================
     @bot.message_handler(commands=['status', 'cek'])
     def handle_status(message):
-        data = _load_snapshot()
+        data = database.load_catalog_snapshot()
         if data:
             total_items = len(data)
             aman_c = sum(1 for v in data.values() if v.get('stock', '').lower() == 'aman')
@@ -1137,26 +1139,7 @@ def register_handlers(bot):
             bot.reply_to(message, reply, parse_mode="HTML", reply_markup=kb)
             return
 
-        value_str = args[1].replace(',', '.')
-        if '%' in value_str:
-            try:
-                markup_value = float(value_str.replace('%', ''))
-            except ValueError:
-                bot.reply_to(message, "❌ Format salah. Contoh: /setmarkup 20% atau /setmarkup 30000")
-                return
-            database.set_user_markup(chat_id, 'percent', markup_value)
-            label = f"{markup_value:g}%"
-        else:
-            clean_num = re.sub(r'[^\d.]', '', value_str)
-            try:
-                markup_value = float(clean_num)
-            except ValueError:
-                bot.reply_to(message, "❌ Format salah. Contoh: /setmarkup 20% atau /setmarkup 30000")
-                return
-            database.set_user_markup(chat_id, 'nominal', markup_value)
-            label = f"Rp {int(markup_value):,}".replace(",", ".")
-
-        bot.reply_to(message, f"✅ Target profit default disimpan: <b>{label}</b>", parse_mode="HTML")
+        _save_profit_setting(bot, message, " ".join(args[1:]))
 
     # =====================
     # /hitung [nama] [profit]
@@ -1211,6 +1194,12 @@ def register_handlers(bot):
                 except Exception:
                     pass
 
+        if specific_date:
+            try:
+                specific_date = datetime.strptime(specific_date, "%Y-%m-%d").date().isoformat()
+            except ValueError:
+                bot.reply_to(message, "❌ Tanggal tidak valid. Contoh: /perubahan 19-11-2026.")
+                return
         _render_perubahan(
             bot, message.chat.id,
             filter_type=filter_type, days=days,
@@ -1275,8 +1264,8 @@ def register_handlers(bot):
             f"⚙️ <b>PENGATURAN KALKULATOR & KATALOG:</b>\n"
             f"🛒 Marketplace: <b>{mp_name}</b> (Admin {admin_fee}%)\n"
             f"💰 Target Profit: <b>{markup}</b>\n\n"
-            f"🤝 <b>PROGRAM REFERRAL (+7 HARI GRATIS):</b>\n"
-            f"Ajak teman reseller pakai link di bawah. Begitu mereka langganan, masa aktifmu otomatis <b>+7 Hari!</b>\n"
+            f"🤝 <b>PROGRAM REFERRAL (+{config.REFERRAL_BONUS_DAYS} HARI GRATIS):</b>\n"
+            f"Ajak teman reseller pakai link di bawah. Begitu mereka langganan, masa aktifmu otomatis <b>+{config.REFERRAL_BONUS_DAYS} Hari!</b>\n"
             f"🔗 <code>{ref_link}</code>\n"
             f"👥 Teman Bergabung: <b>{settings.get('referral_count') or 0} orang</b>"
         )
@@ -1325,25 +1314,17 @@ def register_handlers(bot):
                 except Exception:
                     pass
 
-                # Cek bonus referral (sekali per user jika belum dapat dari QRIS)
-                user_settings = database.get_user_settings(target_id)
-                inviter = user_settings.get('referred_by')
-                if inviter and str(inviter) != str(target_id):
-                    database.increment_referral_count(inviter)
-                    inviter_settings = database.get_user_settings(inviter)
-                    _, inv_valid = _is_user_active(inviter_settings)
-                    if inv_valid < datetime.now(timezone.utc):
-                        inv_valid = datetime.now(timezone.utc)
-                    new_inv_valid = (inv_valid + timedelta(days=7)).isoformat()
-                    database.update_subscription(inviter, inviter_settings.get('plan_type', 'pro'), new_inv_valid, "")
-                    try:
+                try:
+                    inviter = database.grant_referral(target_id)
+                    if inviter:
                         bot.send_message(
                             inviter,
-                            f"🎁 <b>BONUS REFERRAL!</b>\n\nTeman yang kamu undang (ID: {target_id}) telah berlangganan! Kamu mendapat bonus <b>+7 Hari</b>.",
-                            parse_mode="HTML"
+                            f"🎁 <b>BONUS REFERRAL!</b>\n\nTeman yang kamu undang telah berlangganan. "
+                            f"Kamu mendapat bonus <b>+{config.REFERRAL_BONUS_DAYS} hari</b>.",
+                            parse_mode="HTML",
                         )
-                    except Exception:
-                        pass
+                except Exception as exc:
+                    print(f"Referral error for {target_id}: {exc}")
             else:
                 bot.reply_to(message, "❌ Gagal update database.")
         except Exception as e:
@@ -1781,27 +1762,8 @@ def register_handlers(bot):
         bot.reply_to(message, f"✅ Marketplace diubah ke <b>{mp_name}</b> dengan Admin Fee <b>{fee}%</b>.", parse_mode="HTML")
 
     def process_profit_step(message):
-        if _intercept_menu_or_cancel(message):
-            return
-        chat_id = message.chat.id
-        text = message.text.strip().lower().replace(',', '.')
-
-        if text.endswith('%'):
-            try:
-                val = float(text.replace('%', ''))
-                database.set_user_markup(chat_id, 'percent', val)
-                bot.reply_to(message, f"✅ Target Profit default disimpan: <b>{val:g}%</b>", parse_mode="HTML")
-            except Exception:
-                bot.reply_to(message, "❌ Format salah. Contoh: <code>20%</code>", parse_mode="HTML")
-        else:
-            clean_num = re.sub(r'[^\d.]', '', text)
-            try:
-                val = float(clean_num)
-                database.set_user_markup(chat_id, 'nominal', val)
-                lbl = f"Rp {int(val):,}".replace(",", ".")
-                bot.reply_to(message, f"✅ Target Profit default disimpan: <b>{lbl}</b>", parse_mode="HTML")
-            except Exception:
-                bot.reply_to(message, "❌ Format salah. Contoh: <code>20%</code> atau <code>30000</code>", parse_mode="HTML")
+        if not _intercept_menu_or_cancel(message):
+            _save_profit_setting(bot, message, message.text)
 
     def process_katalog_step(message):
         if _intercept_menu_or_cancel(message):

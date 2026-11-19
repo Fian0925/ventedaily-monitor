@@ -26,24 +26,22 @@ import database
 SUPPORT_USERNAME = os.getenv("SUPPORT_USERNAME", "fianfi").lstrip("@")
 ADMIN_CHAT_ID = str(os.getenv("PAYMENT_ADMIN_CHAT_ID", config.TELEGRAM_CHAT_ID))
 QRIS_STATIC_PAYLOAD = os.getenv("QRIS_STATIC_PAYLOAD", "").strip()
-REFERRAL_BONUS_DAYS = int(os.getenv("REFERRAL_BONUS_DAYS", "7"))
 
 SUPABASE_URL = f"{config.SUPABASE_URL.rstrip('/')}/rest/v1"
-PAYMENT_DB_KEY = (
-    os.getenv("SUPABASE_SECRET_KEY")
-    or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-    or ""
-)
+PAYMENT_DB_KEY = config.SUPABASE_SERVER_KEY
+if PAYMENT_DB_KEY == "GANTI_DENGAN_KUNCI_SUPABASE":
+    PAYMENT_DB_KEY = None
 
 _session = requests.Session()
 if PAYMENT_DB_KEY:
     _session.headers.update(
         {
             "apikey": PAYMENT_DB_KEY,
-            "Authorization": f"Bearer {PAYMENT_DB_KEY}",
             "Content-Type": "application/json",
         }
     )
+    if not PAYMENT_DB_KEY.startswith(("sb_secret_", "sb_publishable_")):
+        _session.headers["Authorization"] = f"Bearer {PAYMENT_DB_KEY}"
 
 
 # -----------------------------------------------------------------------------
@@ -356,37 +354,12 @@ def submit_payment(invoice: str) -> Optional[dict]:
     return rows[0] if rows else get_payment(invoice)
 
 
-def claim_for_approval(invoice: str, admin_id: str) -> Optional[dict]:
-    rows = _patch(
-        "payment_requests?invoice=eq."
-        + requests.utils.quote(invoice, safe="")
-        + "&status=eq.waiting_verification",
-        {"status": "processing", "verified_by": str(admin_id)},
-    )
-    return rows[0] if rows else None
-
-
-def finalize_paid(invoice: str, admin_id: str) -> Optional[dict]:
-    rows = _patch(
-        "payment_requests?invoice=eq."
-        + requests.utils.quote(invoice, safe="")
-        + "&status=eq.processing",
-        {
-            "status": "paid",
-            "verified_at": datetime.now(timezone.utc).isoformat(),
-            "verified_by": str(admin_id),
-        },
-    )
-    return rows[0] if rows else None
-
-
-def revert_to_waiting(invoice: str) -> None:
-    _patch(
-        "payment_requests?invoice=eq."
-        + requests.utils.quote(invoice, safe="")
-        + "&status=eq.processing",
-        {"status": "waiting_verification"},
-    )
+def approve_payment(invoice, admin_id):
+    return database.call_rpc("approve_monitor_payment", {
+        "p_invoice": invoice,
+        "p_admin_id": str(admin_id),
+        "p_bonus_days": config.REFERRAL_BONUS_DAYS,
+    })
 
 
 def reject_payment(invoice: str, admin_id: str) -> Optional[dict]:
@@ -438,53 +411,6 @@ def _subscription_info(chat_id) -> Tuple[dict, datetime, bool]:
     if until.tzinfo is None:
         until = until.replace(tzinfo=timezone.utc)
     return settings, until, until > datetime.now(timezone.utc)
-
-
-def _extend_subscription(chat_id: str, days: int, plan_type: str) -> Tuple[bool, datetime]:
-    _, current_until, _ = _subscription_info(chat_id)
-    now = datetime.now(timezone.utc)
-    base = current_until if current_until > now else now
-    new_until = base + timedelta(days=int(days))
-    ok = database.update_subscription(chat_id, plan_type or "pro", new_until.isoformat(), "")
-    return ok, new_until
-
-
-def _reward_referral_once(paid_chat_id: str) -> None:
-    try:
-        settings = database.get_user_settings(paid_chat_id)
-        inviter = str(settings.get("referred_by") or "").strip()
-        if not inviter or inviter == str(paid_chat_id):
-            return
-        already = _get(
-            "referral_rewards?referred_chat_id=eq."
-            + requests.utils.quote(str(paid_chat_id), safe="")
-            + "&limit=1"
-        )
-        if already:
-            return
-
-        inviter_settings, inviter_until, _ = _subscription_info(inviter)
-        now = datetime.now(timezone.utc)
-        base = inviter_until if inviter_until > now else now
-        new_until = base + timedelta(days=REFERRAL_BONUS_DAYS)
-        if not database.update_subscription(
-            inviter,
-            inviter_settings.get("plan_type") or "pro",
-            new_until.isoformat(),
-            "",
-        ):
-            return
-        database.increment_referral_count(inviter)
-        _post(
-            "referral_rewards",
-            {
-                "referred_chat_id": str(paid_chat_id),
-                "inviter_chat_id": inviter,
-                "bonus_days": REFERRAL_BONUS_DAYS,
-            },
-        )
-    except Exception as exc:
-        print(f"Referral reward warning: {exc}")
 
 
 def _status_label(status: str) -> str:
@@ -621,6 +547,49 @@ def _notify_admin(bot, payment: dict) -> None:
     bot.send_message(ADMIN_CHAT_ID, text, parse_mode="HTML", reply_markup=markup)
 
 
+def _notify_admin_once(bot, invoice):
+    now = datetime.now(timezone.utc)
+    expired_claim = requests.utils.quote((now - timedelta(minutes=2)).isoformat(), safe="")
+    claimed_at = now.isoformat()
+    invoice_path = "payment_requests?invoice=eq." + requests.utils.quote(invoice, safe="")
+    rows = _patch(
+        invoice_path + "&status=eq.waiting_verification&admin_notified_at=is.null"
+        + "&or=(admin_notify_claimed_at.is.null,admin_notify_claimed_at.lt." + expired_claim + ")",
+        {"admin_notify_claimed_at": claimed_at},
+    )
+    if not rows:
+        return
+
+    claim_path = invoice_path + "&admin_notify_claimed_at=eq." + requests.utils.quote(claimed_at, safe="")
+    try:
+        _notify_admin(bot, rows[0])
+    except Exception:
+        _patch(claim_path, {"admin_notify_claimed_at": None})
+        raise
+    _patch(claim_path, {
+        "admin_notified_at": datetime.now(timezone.utc).isoformat(),
+        "admin_notify_claimed_at": None,
+    })
+
+
+def retry_admin_notifications(bot):
+    if not PAYMENT_DB_KEY:
+        return
+    try:
+        payments = _get(
+            "payment_requests?status=eq.waiting_verification"
+            "&admin_notified_at=is.null&order=submitted_at.asc&limit=20"
+        )
+    except (requests.RequestException, ValueError) as exc:
+        print(f"Error reading pending admin notifications: {exc}")
+        return
+    for payment in payments:
+        try:
+            _notify_admin_once(bot, payment["invoice"])
+        except Exception as exc:
+            print(f"Error notifying admin for {payment['invoice']}: {exc}")
+
+
 def _set_command_menu(bot) -> None:
     commands = [
         types.BotCommand("start", "Mulai / buka menu"),
@@ -736,11 +705,17 @@ def register_handlers(bot) -> None:
             bot.reply_to(message, "✅ Tidak ada pembayaran yang menunggu verifikasi.")
             return
         lines = ["🕒 <b>MENUNGGU VERIFIKASI</b>"]
+        markup = types.InlineKeyboardMarkup(row_width=2)
         for p in rows:
+            invoice = p["invoice"]
             lines.append(
-                f"• <code>{p['invoice']}</code> | {p.get('plan_name') or p.get('plan_code') or '-'} | {_format_rupiah(int(p['amount']))} | ID <code>{p['chat_id']}</code>"
+                f"• <code>{invoice}</code> | {p.get('plan_name') or p.get('plan_code') or '-'} | {_format_rupiah(int(p['amount']))} | ID <code>{p['chat_id']}</code>"
             )
-        bot.reply_to(message, "\n".join(lines), parse_mode="HTML")
+            markup.row(
+                types.InlineKeyboardButton(f"✅ {invoice}", callback_data=f"pay_approve:{invoice}"),
+                types.InlineKeyboardButton(f"❌ {invoice}", callback_data=f"pay_reject:{invoice}"),
+            )
+        bot.reply_to(message, "\n".join(lines), parse_mode="HTML", reply_markup=markup)
 
     # ---------------- Admin dynamic plan management ----------------
     @bot.message_handler(commands=["paketadmin", "paketlist"])
@@ -955,16 +930,21 @@ def register_handlers(bot) -> None:
             if not current or str(current["chat_id"]) != str(call.from_user.id):
                 bot.answer_callback_query(call.id, "Tagihan tidak ditemukan.", show_alert=True)
                 return
-            if current["status"] == "waiting_verification":
-                bot.answer_callback_query(call.id, "Sudah menunggu verifikasi admin.", show_alert=True)
-                return
-            if current["status"] != "pending":
+            if current["status"] not in {"pending", "waiting_verification"}:
                 bot.answer_callback_query(call.id, _status_label(current["status"]), show_alert=True)
                 return
-            payment = submit_payment(invoice)
-            if payment and payment["status"] == "waiting_verification":
-                _notify_admin(bot, payment)
-                bot.answer_callback_query(call.id, "Pembayaran dikirim untuk verifikasi.", show_alert=True)
+            payment = submit_payment(invoice) if current["status"] == "pending" else current
+            if not payment or payment["status"] != "waiting_verification":
+                status = _status_label(payment["status"]) if payment else "Tagihan tidak ditemukan."
+                bot.answer_callback_query(call.id, status, show_alert=True)
+                return
+            try:
+                _notify_admin_once(bot, invoice)
+            except Exception as exc:
+                print(f"Error notifying admin for {invoice}: {exc}")
+
+            bot.answer_callback_query(call.id, "Pembayaran tercatat dan menunggu verifikasi.", show_alert=True)
+            if current["status"] == "pending":
                 bot.send_message(
                     call.from_user.id,
                     "🕒 <b>Menunggu Verifikasi</b>\n\nAdmin sedang mengecek dana masuk. Akun akan aktif setelah pembayaran disetujui.",
@@ -981,30 +961,21 @@ def register_handlers(bot) -> None:
             return
         invoice = call.data.split(":", 1)[1]
         try:
-            claimed = claim_for_approval(invoice, str(call.from_user.id))
-            if not claimed:
+            approved = approve_payment(invoice, call.from_user.id)
+            if not approved:
                 existing = get_payment(invoice)
-                bot.answer_callback_query(call.id, f"Status sekarang: {_status_label(existing['status']) if existing else 'tidak ditemukan'}", show_alert=True)
+                status = _status_label(existing["status"]) if existing else "tidak ditemukan"
+                bot.answer_callback_query(call.id, f"Status sekarang: {status}", show_alert=True)
                 return
-            ok, new_until = _extend_subscription(
-                str(claimed["chat_id"]),
-                int(claimed["duration_days"]),
-                claimed.get("plan_type") or "pro",
-            )
-            if not ok:
-                revert_to_waiting(invoice)
-                bot.answer_callback_query(call.id, "Gagal mengaktifkan langganan.", show_alert=True)
-                return
-            finalize_paid(invoice, str(call.from_user.id))
-            _reward_referral_once(str(claimed["chat_id"]))
+            new_until = datetime.fromisoformat(approved["valid_until"].replace("Z", "+00:00"))
             until_wib = new_until.astimezone(timezone(timedelta(hours=7))).strftime("%d-%m-%Y %H:%M WIB")
             bot.answer_callback_query(call.id, "Pembayaran disetujui ✅")
             try:
                 bot.edit_message_text(
                     "✅ <b>PEMBAYARAN DISETUJUI</b>\n"
                     f"Invoice: <code>{invoice}</code>\n"
-                    f"User ID: <code>{claimed['chat_id']}</code>\n"
-                    f"Paket: <b>{claimed.get('plan_name') or '-'}</b>\n"
+                    f"User ID: <code>{approved['chat_id']}</code>\n"
+                    f"Paket: <b>{approved.get('plan_name') or '-'}</b>\n"
                     f"Aktif sampai: <b>{until_wib}</b>",
                     chat_id=call.message.chat.id,
                     message_id=call.message.message_id,
@@ -1019,21 +990,18 @@ def register_handlers(bot) -> None:
             except Exception:
                 pass
             bot.send_message(
-                claimed["chat_id"],
+                approved["chat_id"],
                 "🎉 <b>PEMBAYARAN BERHASIL!</b>\n\n"
-                f"📦 Paket: <b>{claimed.get('plan_name') or claimed.get('plan_code') or 'Pro'}</b>\n"
-                f"⏳ Tambahan: <b>{claimed['duration_days']} hari</b>\n"
+                f"📦 Paket: <b>{approved.get('plan_name') or approved.get('plan_code') or 'Pro'}</b>\n"
+                f"⏳ Tambahan: <b>{approved['duration_days']} hari</b>\n"
                 f"📅 Aktif sampai: <b>{until_wib}</b>\n\n"
                 "Akses penuh sudah aktif! Kamu bisa langsung ketik <b>nama produk</b> di bawah untuk mencari stok.",
                 parse_mode="HTML",
                 reply_markup=kb_active,
             )
         except Exception as exc:
-            try:
-                revert_to_waiting(invoice)
-            except Exception:
-                pass
-            bot.answer_callback_query(call.id, f"Error: {exc}", show_alert=True)
+            print(f"Approval or Telegram reply failed for {invoice}: {exc}")
+            bot.answer_callback_query(call.id, "Gagal menampilkan hasil. Cek status invoice lalu coba lagi.", show_alert=True)
 
     @bot.callback_query_handler(func=lambda call: call.data.startswith("pay_reject:"))
     def callback_reject(call):

@@ -1,15 +1,19 @@
+import json
+from pathlib import Path
+
 import requests
 import config
 
-SUPABASE_URL = f"{config.SUPABASE_URL}/rest/v1"
-SUPABASE_KEY = config.SUPABASE_KEY
+SUPABASE_URL = f"{config.SUPABASE_URL.rstrip('/')}/rest/v1"
+SUPABASE_KEY = config.SUPABASE_SERVER_KEY
 
 headers = {
     "apikey": SUPABASE_KEY,
-    "Authorization": f"Bearer {SUPABASE_KEY}",
     "Content-Type": "application/json",
     "Prefer": "return=representation"
 }
+if not SUPABASE_KEY.startswith(("sb_secret_", "sb_publishable_")):
+    headers["Authorization"] = f"Bearer {SUPABASE_KEY}"
 
 # Session reuses TCP+SSL connection, sehingga request ke-2 dst jauh lebih cepat
 session = requests.Session()
@@ -21,46 +25,60 @@ session.headers.update(headers)
 # Table: stock_snapshot (id TEXT PRIMARY KEY, data JSONB, updated_at TIMESTAMPTZ)
 # =====================================================================
 
-def save_snapshot(data) -> bool:
-    """Simpan snapshot stok ke Supabase. Return True jika berhasil."""
-    from datetime import datetime, timezone
-    payload = {
-        "id": "latest",
-        "data": data,
-        "updated_at": datetime.now(timezone.utc).isoformat()
-    }
-    upsert_headers = headers.copy()
-    upsert_headers["Prefer"] = "resolution=merge-duplicates"
-    try:
-        res = session.post(
-            f"{SUPABASE_URL}/stock_snapshot",
-            json=payload,
-            headers=upsert_headers,
-            timeout=30
-        )
-        res.raise_for_status()
-        return True
-    except Exception as e:
-        print(f"Error saving snapshot to Supabase: {e}")
-        return False
+def call_rpc(name, payload):
+    response = session.post(f"{SUPABASE_URL}/rpc/{name}", json=payload, timeout=30)
+    response.raise_for_status()
+    return response.json()
+
+
+def save_snapshot(data, expected_updated_at, events):
+    return call_rpc("save_stock_cycle", {
+        "p_expected_updated_at": expected_updated_at,
+        "p_data": data,
+        "p_events": events,
+    })
+
+
+def read_snapshot():
+    response = session.get(
+        f"{SUPABASE_URL}/stock_snapshot",
+        params={"id": "eq.latest", "select": "data,updated_at"},
+        timeout=15,
+    )
+    response.raise_for_status()
+    rows = response.json()
+    return rows[0] if rows else None
 
 
 def load_snapshot():
-    """Ambil snapshot stok dari Supabase. Return dict atau None jika belum ada."""
     try:
-        res = session.get(
-            f"{SUPABASE_URL}/stock_snapshot?id=eq.latest",
-            headers=headers,
-            timeout=15
-        )
-        res.raise_for_status()
-        rows = res.json()
-        if rows:
-            return rows[0].get("data")
+        row = read_snapshot()
+        return row["data"] if row else None
+    except (requests.RequestException, ValueError) as exc:
+        print(f"Error loading snapshot from Supabase: {exc}")
         return None
-    except Exception as e:
-        print(f"Error loading snapshot from Supabase: {e}")
-        return None
+
+
+def load_catalog_snapshot():
+    data = load_snapshot()
+    if not data:
+        try:
+            path = Path(__file__).with_name("data_snapshot.json")
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            print(f"Error loading local snapshot: {exc}")
+            return None
+
+    # Older snapshots use numeric IDs and store the searchable name in each row.
+    items = {}
+    stock_rank = {"aman": 2, "ready": 1}
+    for key, item in data.items():
+        name = item.get("nama") or key
+        stock = item.get("stock", "")
+        current = items.get(name)
+        if current is None or stock_rank.get(stock.lower(), 0) > stock_rank.get(current["stock"].lower(), 0):
+            items[name] = {"stock": stock, "harga": item.get("harga", "")}
+    return items
 
 
 def get_snapshot_updated_at():
@@ -123,43 +141,41 @@ def get_user_stats():
     }
 
 
-def log_event(nama, event_type, stock, harga):
-    payload = {
-        "nama": nama,
-        "event_type": event_type,
-        "stock": stock,
-        "harga": harga
-    }
-    try:
-        res = session.post(f"{SUPABASE_URL}/product_events", json=payload, headers=headers, timeout=10)
-        res.raise_for_status()
-    except Exception as e:
-        print(f"Error logging event to Supabase: {e}")
-
 def get_events(event_type=None, days=1, specific_date=None):
-    from datetime import datetime, timedelta, timezone
-    
+    from datetime import date, datetime, time, timedelta, timezone
+
+    params = [("order", "detected_at.desc,id.desc")]
+    if event_type:
+        params.append(("event_type", "in.(new,baru)" if event_type == "new" else f"eq.{event_type}"))
     if specific_date:
-        # Gunakan batas waktu WIB (+07:00) agar sesuai tanggal Indonesia
-        start = f"{specific_date}T00:00:00%2B07:00"
-        end = f"{specific_date}T23:59:59%2B07:00"
-        if event_type:
-            url = f"{SUPABASE_URL}/product_events?event_type=eq.{event_type}&detected_at=gte.{start}&detected_at=lte.{end}&order=detected_at.desc"
-        else:
-            url = f"{SUPABASE_URL}/product_events?detected_at=gte.{start}&detected_at=lte.{end}&order=detected_at.desc"
+        day = date.fromisoformat(specific_date)
+        wib = timezone(timedelta(hours=7))
+        start = datetime.combine(day, time.min, wib)
+        end = start + timedelta(days=1)
+        params.append(("detected_at", f"lt.{end.isoformat()}"))
     else:
-        since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat().replace('+', '%2B')
-        if event_type:
-            url = f"{SUPABASE_URL}/product_events?event_type=eq.{event_type}&detected_at=gte.{since}&order=detected_at.desc"
-        else:
-            url = f"{SUPABASE_URL}/product_events?detected_at=gte.{since}&order=detected_at.desc"
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(days=days)
+        params.append(("detected_at", f"lte.{end.isoformat()}"))
+    params.append(("detected_at", f"gte.{start.isoformat()}"))
+
+    events = []
     try:
-        res = session.get(url, headers=headers, timeout=10)
-        res.raise_for_status()
-        return res.json()
-    except Exception as e:
-        print(f"Error getting events: {e}")
+        while True:
+            response = session.get(
+                f"{SUPABASE_URL}/product_events",
+                params=[*params, ("limit", 500), ("offset", len(events))],
+                timeout=10,
+            )
+            response.raise_for_status()
+            rows = response.json()
+            if not rows:
+                return events
+            events.extend(rows)
+    except (requests.RequestException, ValueError) as exc:
+        print(f"Error getting events: {exc}")
         return []
+
 
 def get_user_settings(chat_id):
     url = f"{SUPABASE_URL}/user_settings?chat_id=eq.{chat_id}"
@@ -188,8 +204,19 @@ def get_user_settings(chat_id):
             "referred_by": "",
             "referral_count": 0
         }
-        session.post(f"{SUPABASE_URL}/user_settings", json=default_settings, headers=headers, timeout=10)
-        return default_settings
+        created = session.post(
+            f"{SUPABASE_URL}/user_settings",
+            json=default_settings,
+            headers={"Prefer": "resolution=ignore-duplicates,return=representation"},
+            timeout=10,
+        )
+        created.raise_for_status()
+        rows = created.json()
+        if rows:
+            return rows[0]
+        res = session.get(url, timeout=10)
+        res.raise_for_status()
+        return res.json()[0]
     except Exception as e:
         print(f"Error getting/creating user settings: {e}")
         from config import TELEGRAM_CHAT_ID
@@ -233,8 +260,10 @@ def set_user_markup(chat_id, markup_type, value):
     try:
         res = session.post(f"{SUPABASE_URL}/user_settings", json=payload, headers=headers_upsert, timeout=10)
         res.raise_for_status()
+        return True
     except Exception as e:
         print(f"Error setting markup: {e}")
+        return False
 
 def get_all_users():
     url = f"{SUPABASE_URL}/user_settings"
@@ -315,17 +344,26 @@ def set_referred_by(chat_id, inviter_id):
     except Exception as e:
         print(f"Error setting referred_by: {e}")
 
-def increment_referral_count(chat_id):
-    settings = get_user_settings(chat_id)
-    count = (settings.get("referral_count") or 0) + 1
-    payload = {
-        "chat_id": str(chat_id),
-        "referral_count": count
-    }
-    headers_upsert = headers.copy()
-    headers_upsert["Prefer"] = "resolution=merge-duplicates"
-    try:
-        session.post(f"{SUPABASE_URL}/user_settings", json=payload, headers=headers_upsert, timeout=10)
-    except Exception as e:
-        print(f"Error incrementing referral count: {e}")
+def activate_trial(chat_id):
+    return call_rpc("activate_monitor_trial", {"p_chat_id": str(chat_id)})
 
+
+def mark_expiration_reminder(chat_id, valid_until, previous_reminder, reminder):
+    response = session.patch(
+        f"{SUPABASE_URL}/user_settings",
+        params={
+            "chat_id": f"eq.{chat_id}",
+            "valid_until": f"eq.{valid_until}",
+            "reminder_sent": "is.null" if previous_reminder is None else f"eq.{previous_reminder}",
+        },
+        json={"reminder_sent": reminder},
+        timeout=10,
+    )
+    response.raise_for_status()
+
+
+def grant_referral(chat_id):
+    return call_rpc("grant_monitor_referral", {
+        "p_chat_id": str(chat_id),
+        "p_bonus_days": config.REFERRAL_BONUS_DAYS,
+    })

@@ -1,3 +1,4 @@
+import math
 import re
 
 MARKETPLACES = {
@@ -19,6 +20,24 @@ def parse_price(price_str):
 def format_price(price_int):
     """Mengubah integer menjadi format Rupiah"""
     return f"Rp {price_int:,}".replace(",", ".")
+
+NOMINAL_AMOUNT = re.compile(r"(?:rp\.?\s*)?(?:[0-9]+|[0-9]{1,3}(?:\.[0-9]{3})+)", re.I)
+
+
+def is_nominal_amount(value):
+    return NOMINAL_AMOUNT.fullmatch(value.strip()) is not None
+
+
+def parse_profit(value):
+    value = value.strip()
+    if value.endswith("%"):
+        percent = float(value[:-1].strip().replace(",", "."))
+        if math.isfinite(percent) and percent >= 0:
+            return "percent", percent
+    elif is_nominal_amount(value):
+        return "nominal", parse_price(value)
+    raise ValueError("Target profit tidak valid")
+
 
 def calculate_price(modal_str, profit_value, profit_type, admin_pct, biaya_tambahan=0):
     """

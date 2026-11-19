@@ -1,17 +1,15 @@
 import requests
-import json
 import time
 import schedule
 import os
 from datetime import datetime
 import threading
-from flask import Flask, send_file, make_response
+from flask import Flask, make_response
 import telebot
 import config
 import database
 import commands
 import payments
-DATA_FILE = 'data_snapshot.json'
 
 API_HEADERS = {
     "Accept": "application/json",
@@ -27,19 +25,14 @@ def home():
 
 @app.route('/api/data')
 def get_data():
-    snap = database.load_snapshot()
-    if snap:
-        response = make_response(json.dumps(snap, ensure_ascii=False))
-        response.headers['Content-Type'] = 'application/json; charset=utf-8'
-        response.headers['Access-Control-Allow-Origin'] = '*'
-        return response
-    if os.path.exists(DATA_FILE):
-        response = make_response(send_file(DATA_FILE, mimetype='application/json'))
-        response.headers['Access-Control-Allow-Origin'] = '*'
-        return response
-    response = make_response({"error": "Data belum tersedia, bot sedang loading."}, 404)
+    snapshot = database.load_catalog_snapshot()
+    if snapshot:
+        response = make_response(snapshot)
+    else:
+        response = make_response({"error": "Data belum tersedia, bot sedang loading."}, 404)
     response.headers['Access-Control-Allow-Origin'] = '*'
     return response
+
 
 def send_admin_message(message):
     try:
@@ -91,7 +84,7 @@ def _fetch_paginated(url):
     return all_items
 
 
-def fetch_all():
+def fetch_all(previous_data=None):
     """Ambil data stok dari API Ventedaily ERP.
     
     Strategi dual-source:
@@ -136,6 +129,7 @@ def fetch_all():
     # 3. Gabungkan: status dari catalog + harga dari stock lookup
     import re as _re
     data = {}
+    previous_data = previous_data or {}
     price_miss = 0
     for item in catalog_items:
         nama = item.get("name", "").strip()
@@ -166,15 +160,17 @@ def fetch_all():
 
         if reseller_price > 0:
             harga = f"Rp {reseller_price:,}".replace(",", ".")
+            data[nama] = {"stock": status, "harga": harga}
         else:
-            # Fallback ke selling_price dari catalog
-            harga = f"Rp {selling_price:,}".replace(",", ".")
-            price_miss += 1
+            previous = previous_data.get(nama, {})
+            if previous.get("harga") and not previous.get("catalog_price"):
+                data[nama] = {"stock": status, "harga": previous["harga"]}
+            else:
+                harga = f"Rp {selling_price:,}".replace(",", ".")
+                data[nama] = {"stock": status, "harga": harga, "catalog_price": True}
+                price_miss += 1
 
-        data[nama] = {"stock": status, "harga": harga}
-
-    if price_miss > 0:
-        print(f"  Info: {price_miss} produk pakai harga fallback (tidak cocok di stock)")
+    print(f"  Info: {price_miss} produk pakai harga fallback (tidak cocok di stock)")
     print(f"Selesai! Total {len(data)} varian dari catalog, {len(price_lookup)} harga reseller dari stock.")
     return data
 
@@ -211,12 +207,14 @@ def _sort_size_items(size_items):
 
 
 def compare_data(old_data, new_data):
-    """Bandingkan snapshot lama vs baru, log ke DB, dan buat 1 pesan grup rapi (anti-spam)."""
+    """Bandingkan snapshot dan siapkan pesan serta riwayat untuk siklus ini."""
     from collections import defaultdict
     from datetime import timezone, timedelta
 
-    MAX_LOG_EVENTS = 100  # Batasi agar tidak freeze saat ratusan produk berubah
-    logged = 0
+    events = []
+
+    def record(nama, event_type, stock, harga):
+        events.append({"nama": nama, "event_type": event_type, "stock": stock, "harga": harga})
     total_changes = 0
 
     restock_groups = defaultdict(lambda: {"harga": "", "sizes": []})
@@ -234,9 +232,7 @@ def compare_data(old_data, new_data):
 
         if prod_nama not in old_data:
             total_changes += 1
-            if logged < MAX_LOG_EVENTS:
-                database.log_event(prod_nama, 'new', new_st, new_harga)
-                logged += 1
+            record(prod_nama, 'new', new_st, new_harga)
             # Hanya tampilkan di notif jika produk baru stoknya Ready/Aman
             if new_st_low in ('aman', 'ready'):
                 new_groups[base_name]["harga"] = new_harga
@@ -250,15 +246,11 @@ def compare_data(old_data, new_data):
             if old_st != new_st:
                 total_changes += 1
                 if "habis" in old_st_low and new_st_low in ("ready", "aman"):
-                    if logged < MAX_LOG_EVENTS:
-                        database.log_event(prod_nama, 'restock', new_st, new_harga)
-                        logged += 1
+                    record(prod_nama, 'restock', new_st, new_harga)
                     restock_groups[base_name]["harga"] = new_harga
                     restock_groups[base_name]["sizes"].append((sz, new_st_low))
                 elif old_st_low in ("ready", "aman") and "habis" in new_st_low:
-                    if logged < MAX_LOG_EVENTS:
-                        database.log_event(prod_nama, 'habis', old_st, new_harga)
-                        logged += 1
+                    record(prod_nama, 'habis', old_st, new_harga)
                     habis_groups[base_name]["harga"] = new_harga
                     habis_groups[base_name]["sizes"].append((sz, new_st_low))
                 elif old_st_low == "aman" and new_st_low == "ready":
@@ -268,11 +260,10 @@ def compare_data(old_data, new_data):
                     aman_lagi_groups[base_name]["harga"] = new_harga
                     aman_lagi_groups[base_name]["sizes"].append((sz, new_st_low))
 
-            if old_harga != new_harga:
+            if (old_harga != new_harga
+                    and not old_item.get("catalog_price") and not new_item.get("catalog_price")):
                 total_changes += 1
-                if logged < MAX_LOG_EVENTS:
-                    database.log_event(prod_nama, 'price_change', old_harga, new_harga)
-                    logged += 1
+                record(prod_nama, 'price_change', old_harga, new_harga)
                 price_groups[base_name] = (old_harga, new_harga)
 
     has_visible = any([
@@ -280,7 +271,7 @@ def compare_data(old_data, new_data):
         aman_lagi_groups, habis_groups, price_groups
     ])
     if not has_visible:
-        return [], total_changes
+        return [], total_changes, events
 
     wib = timezone(timedelta(hours=7))
     now_label = datetime.now(wib).strftime('%d %b %Y | %H:%M WIB')
@@ -371,7 +362,7 @@ def compare_data(old_data, new_data):
         if chunk.strip():
             messages.append(chunk)
 
-    return messages, total_changes
+    return messages, total_changes, events
 
 
 def job():
@@ -380,53 +371,40 @@ def job():
     now_str = datetime.now(wib).strftime('%H:%M:%S WIB')
 
     try:
-        new_data = fetch_all()
-        if not new_data:
-            msg = f"⚠️ [{now_str}] fetch_all() gagal — return None. Siklus dilewati."
-            print(msg)
-            send_admin_message(msg)
-            return
-
-        # Load snapshot dari Supabase (permanen, tidak hilang saat Render restart)
-        old_data = database.load_snapshot()
-
-        # Deteksi format lama (key numerik atau value berisi field 'nama')
+        snapshot = database.read_snapshot()
+        old_data = snapshot["data"] if snapshot else None
         if old_data:
-            sample_key = next(iter(old_data), "")
-            sample_val = old_data.get(sample_key, {})
-            is_old_format = sample_key.isdigit() or "nama" in sample_val
-            if is_old_format:
+            key = next(iter(old_data))
+            if key.isdigit() or "nama" in old_data[key]:
                 print("Format snapshot lama terdeteksi. Reset snapshot.")
-                send_admin_message(
-                    f"🔄 [{now_str}] <b>Migrasi Data</b>\n"
-                    f"Snapshot lama: {len(old_data)} key (format lama)\n"
-                    f"Data API baru: {len(new_data)} varian\n"
-                    f"Perbandingan dimulai siklus berikutnya."
-                )
                 old_data = None
 
-        if old_data:
-            messages, total_changes = compare_data(old_data, new_data)
+        new_data = fetch_all(old_data)
+        if not new_data:
+            send_admin_message(f"⚠️ [{now_str}] Data stok gagal dimuat. Siklus dilewati.")
+            return
 
-            if messages:
-                for msg in messages:
-                    broadcast_telegram_message(msg)
-                    time.sleep(0.5)
+        messages, total_changes, events = compare_data(old_data, new_data) if old_data else ([], 0, [])
+        expected_updated_at = snapshot["updated_at"] if snapshot else None
+        if not database.save_snapshot(new_data, expected_updated_at, events):
+            print(f"[{now_str}] Snapshot sudah diperbarui oleh siklus lain.")
+            return
 
-                send_admin_message(f"📊 [{now_str}] Job selesai: {total_changes} varian berubah, dikirim dalam {len(messages)} pesan ringkas.")
-            else:
-                print(f"[{now_str}] Job OK: {total_changes} perubahan minor/0 perubahan tampil. Snapshot: {len(old_data)}→{len(new_data)}")
-        else:
+        if not old_data:
             send_admin_message(
                 f"🤖 [{now_str}] <b>Snapshot baru disimpan ke Supabase</b>\n"
                 f"Total: {len(new_data)} varian produk.\n"
-                f"Perbandingan dimulai siklus berikutnya."
+                "Perbandingan dimulai siklus berikutnya."
             )
-
-        # Simpan snapshot ke Supabase (bukan file lokal)
-        ok = database.save_snapshot(new_data)
-        if not ok:
-            send_admin_message(f"⚠️ [{now_str}] Gagal simpan snapshot ke Supabase! Cek koneksi.")
+        elif messages:
+            for msg in messages:
+                broadcast_telegram_message(msg)
+                time.sleep(0.5)
+            send_admin_message(
+                f"📊 [{now_str}] Job selesai: {total_changes} perubahan, {len(messages)} pesan ringkas."
+            )
+        else:
+            print(f"[{now_str}] Job OK: {total_changes} perubahan. Snapshot: {len(old_data)}→{len(new_data)}")
 
     except Exception as e:
         print(f"Error during job execution: {e}")
@@ -529,7 +507,7 @@ def check_expirations_job():
                         parse_mode="HTML",
                         reply_markup=kb_ext
                     )
-                    database.update_subscription(u['chat_id'], u.get('plan_type','pro'), v_str, "1_hour")
+                    database.mark_expiration_reminder(u["chat_id"], v_str, u.get("reminder_sent"), "1_hour")
                 except: pass
         elif timedelta(hours=1) < time_left <= timedelta(hours=24):
             if u.get('reminder_sent') not in ['1_day', '1_hour']:
@@ -540,7 +518,7 @@ def check_expirations_job():
                         parse_mode="HTML",
                         reply_markup=kb_ext
                     )
-                    database.update_subscription(u['chat_id'], u.get('plan_type','pro'), v_str, "1_day")
+                    database.mark_expiration_reminder(u["chat_id"], v_str, u.get("reminder_sent"), "1_day")
                 except: pass
 
 def run_scheduler():
@@ -572,6 +550,7 @@ def run_scheduler():
     schedule.every(config.CHECK_INTERVAL).minutes.do(job)
     schedule.every().hour.do(check_expirations_job)
     schedule.every().hour.do(lambda: payments.send_h3_expiration_reminders(bot))
+    schedule.every(5).minutes.do(lambda: payments.retry_admin_notifications(bot))
     
     # Jadwalkan laporan mingguan tiap Senin jam 08:00
     def weekly_report_job():
