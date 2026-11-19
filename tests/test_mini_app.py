@@ -42,7 +42,7 @@ class MiniAppTests(unittest.TestCase):
     def test_demo_shell_loads_without_a_telegram_session(self):
         page = self.client.get("/mini/")
         self.assertEqual(page.status_code, 200)
-        self.assertIn(b"Pantauan Saya", page.data)
+        self.assertIn(b"Pantauan", page.data)
         self.assertIn(b"dashboard.js", page.data)
         self.assertIn(b'aria-label="Produk"', page.data)
         self.assertIn(b'id="color"', page.data)

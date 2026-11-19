@@ -12,6 +12,7 @@ let watchlist = new Map();
 const selection = new Set();
 const selectedVariants = new Map();
 const CARD_BATCH = 12;
+const filterIds = ["query", "color", "size", "status"];
 let filteredGroups = [];
 let carouselIndex = 0;
 let loaded = false;
@@ -28,7 +29,12 @@ const examples = [
     ["Kirana", "Mauve", "M", "Aman", "Rp 159.000"],
     ["Kirana", "Mauve", "L", "Habis", "Rp 159.000"],
     ["Nala", "Sand", "ALL SIZE", "Ready", "Rp 99.000"],
-    ["Alea", "Mocha", "ALL SIZE", "Aman", "Rp 119.000"],
+    ["Alea", "Mocha", "M", "Aman", "Rp 119.000"],
+    ["Alea", "Mocha", "L", "Aman", "Rp 119.000"],
+    ["Alea", "Mocha", "XL", "Habis", "Rp 119.000"],
+    ["Alea", "Sage", "M", "Ready", "Rp 119.000"],
+    ["Alea", "Sage", "L", "Habis", "Rp 119.000"],
+    ["Alea", "Cream", "M", "Aman", "Rp 125.000"],
 ].map(([name, color, size, stock, price]) => ({id: `${name} ${color} SIZE ${size}`, name, color, size, stock, price}));
 
 function node(tag, className, text) {
@@ -129,7 +135,10 @@ function variantActionButtons(product, context) {
         const selected = selection.has(product.id);
         const label = context === "catalog" ? "Hapus" : selected ? "Dipilih" : "Ke katalog";
         const toggle = action(label, () => toggleProduct(product), selected && context === "stock");
-        if (context === "stock") toggle.setAttribute("aria-pressed", String(selected));
+        if (context === "stock") {
+            toggle.setAttribute("aria-pressed", String(selected));
+            if (!selected) toggle.classList.replace("secondary", "primary");
+        }
         buttons.push(toggle);
     }
     return buttons;
@@ -158,38 +167,99 @@ function productRow(product, context, lastRestock = null) {
     return row;
 }
 
+const swatchColors = [
+    [/black|charcoal/, "#2e3336"], [/navy|denim|blue/, "#334d79"], [/cream|bone|white|vanilla|sand/, "#eee3cf"],
+    [/mocha|mocca|taupe|wood|brown|choco|latte|coffee|espresso/, "#9d715b"], [/sage|olive|green|mint|moss/, "#7d997e"],
+    [/mauve|pink|rose|blush/, "#be8c9f"], [/red|burgundy|maroon/, "#893c4b"], [/purple|lilac|lavender/, "#9c8dad"],
+    [/gray|grey|ash|smoke|stone/, "#808b90"], [/peach|orange|salem/, "#d69a7f"], [/mustard|yellow|gold/, "#d8af63"],
+];
+
+function variantGroup(label) {
+    const field = node("div", "option-group");
+    const options = node("div", "options");
+    options.setAttribute("role", "group");
+    options.setAttribute("aria-label", label);
+    field.append(node("span", "option-label", label), options);
+    return {field, options};
+}
+
+function variantChip(label, selected, change, swatchColor) {
+    const button = node("button", "chip");
+    button.type = "button";
+    button.setAttribute("aria-pressed", String(selected));
+    if (swatchColor) {
+        const swatch = node("span", "swatch");
+        swatch.setAttribute("aria-hidden", "true");
+        swatch.style.setProperty("--swatch", swatchColor);
+        button.append(swatch);
+    }
+    button.append(document.createTextNode(label));
+    button.addEventListener("click", change);
+    return button;
+}
+
 function productCard(group) {
     const card = node("article", "product-card");
-    card.append(node("h3", "", group.name));
-    const picker = node("select");
-    const label = node("label", "variant-field");
-    const field = node("span", "select-field variant-picker");
-    label.append(node("span", "variant-label", "Varian"), field);
-    field.append(picker);
-    const details = node("div", "variant-details");
+    const main = node("div", "card-main");
+    const title = node("header", "card-title");
+    title.append(node("h2", "", group.name), node("p", "variant-count", `${group.variants.length} varian`));
+
+    const colors = variantGroup("Warna");
+    const sizes = variantGroup("Ukuran");
+    const groupedColors = new Map();
+    for (const product of group.variants) {
+        const key = colorKey(product.color);
+        if (!groupedColors.has(key)) groupedColors.set(key, []);
+        groupedColors.get(key).push(product);
+    }
+    colors.field.hidden = groupedColors.size === 1 && groupedColors.has("");
+    main.append(title, colors.field, sizes.field);
+
+    const summary = node("div", "card-summary");
+    const details = node("div");
     details.setAttribute("aria-live", "polite");
+    const price = node("p", "summary-price");
+    const stock = node("div");
     const actions = node("div", "actions");
-    const variants = new Map(group.variants.map((product) => [product.id, product]));
-    for (const product of variants.values()) {
-        const title = [product.color, formatSize(product.size), stockInfo(product.stock)[0]].filter(Boolean).join(" · ");
-        picker.add(new Option(title, product.id));
-    }
-    const selected = selectedVariants.get(group.key);
-    const defaultVariant = group.variants.find(available) || group.variants[0];
-    picker.value = variants.has(selected) ? selected : defaultVariant.id;
+    details.append(node("span", "summary-label", "Harga varian"), price, stock);
+    summary.append(details, actions);
 
-    function displayVariant() {
-        const product = variants.get(picker.value);
-        details.replaceChildren(stockPill(product), node("span", "price", product.price || "Harga belum tersedia"));
-        actions.replaceChildren(...variantActionButtons(product, "stock"));
+    const previous = group.variants.find(({id}) => id === selectedVariants.get(group.key));
+    let selected = previous || group.variants.find(available) || group.variants[0];
+
+    function choose(product, options) {
+        selected = product;
+        selectedVariants.set(group.key, selected.id);
+        showVariant();
+        options.querySelector('[aria-pressed="true"]')?.focus({preventScroll: true});
     }
 
-    picker.addEventListener("change", () => {
-        selectedVariants.set(group.key, picker.value);
-        displayVariant();
-    });
-    displayVariant();
-    card.append(label, details, actions);
+    function showVariant() {
+        const currentColor = colorKey(selected.color);
+        const colorButtons = [];
+        for (const [key, variants] of groupedColors) {
+            const color = variants[0].color || "Standar";
+            const swatch = swatchColors.find(([pattern]) => pattern.test(key))?.[1];
+            colorButtons.push(variantChip(color, key === currentColor, () => {
+                const match = variants.find(({size}) => size === selected.size);
+                choose(match || variants.find(available) || variants[0], colors.options);
+            }, swatch));
+        }
+        colors.options.replaceChildren(...colorButtons);
+
+        const sizesForColor = new Map(groupedColors.get(currentColor).map((product) => [product.size, product]));
+        sizes.options.replaceChildren(...[...sizesForColor.keys()].sort(compareSizes).map((size) => {
+            const product = sizesForColor.get(size);
+            return variantChip(formatSize(size), size === selected.size, () => choose(product, sizes.options));
+        }));
+
+        price.textContent = selected.price || "Belum tersedia";
+        stock.replaceChildren(stockPill(selected));
+        actions.replaceChildren(...variantActionButtons(selected, "stock"));
+    }
+
+    showVariant();
+    card.append(main, summary);
     return card;
 }
 
@@ -238,7 +308,7 @@ function showCarouselPosition() {
     $("carousel-controls").hidden = filteredGroups.length < 2;
     $("previous").disabled = carouselIndex === 0;
     $("next").disabled = carouselIndex >= filteredGroups.length - 1;
-    $("carousel-position").textContent = `${carouselIndex + 1} / ${filteredGroups.length}`;
+    $("carousel-position").textContent = `${carouselIndex + 1} dari ${filteredGroups.length}`;
     for (const [index, card] of Array.from($("stock-list").children).entries()) {
         card.toggleAttribute("inert", index !== carouselIndex);
     }
@@ -267,6 +337,8 @@ function onCarouselScroll() {
 function renderStock() {
     const carousel = $("stock-list");
     filteredGroups = groupMatchingProducts();
+    $("result-count").textContent = loaded ? `${filteredGroups.length} produk` : "";
+    $("clear-filters").hidden = !filterIds.some((id) => $(id).value);
     if (!filteredGroups.length) {
         carouselIndex = 0;
         $("carousel-controls").hidden = true;
@@ -336,17 +408,18 @@ function setFilterOptions(id, placeholder, values, label) {
     select.value = values.includes(previous) ? previous : "";
 }
 
+function compareSizes(left, right) {
+    const rank = (size) => sizeOrder.includes(size) ? sizeOrder.indexOf(size) : sizeOrder.length;
+    return rank(left) - rank(right) || left.localeCompare(right, "id", {numeric: true});
+}
+
 function setProducts(items) {
     products = items;
-    const sizes = Array.from(new Set(products.map(({size}) => size)));
-    sizes.sort((left, right) => {
-        const rank = (size) => sizeOrder.includes(size) ? sizeOrder.indexOf(size) : sizeOrder.length;
-        return rank(left) - rank(right) || left.localeCompare(right, "id", {numeric: true});
-    });
-    setFilterOptions("size", "Semua ukuran", sizes, formatSize);
+    const sizes = Array.from(new Set(products.map(({size}) => size))).sort(compareSizes);
+    setFilterOptions("size", "Semua", sizes, formatSize);
     const colors = new Map(products.filter(({color}) => color).map(({color}) => [colorKey(color), color]));
     const orderedColors = Array.from(colors.keys()).sort((left, right) => left.localeCompare(right, "id"));
-    setFilterOptions("color", "Semua warna", orderedColors, (key) => colors.get(key));
+    setFilterOptions("color", "Semua", orderedColors, (key) => colors.get(key));
 }
 
 async function load() {
@@ -364,7 +437,7 @@ async function load() {
             if (!validSelections.has(id)) selection.delete(id);
         }
         const update = formatDate(data.updated_at);
-        $("stock-time").textContent = demo ? "Data contoh untuk mencoba dashboard." : update ? `Diperbarui ${update}` : "Snapshot stok belum tersedia.";
+        $("stock-time").textContent = demo ? "Cari harga dan ketersediaan per varian." : update ? `Diperbarui ${update}` : "Snapshot stok belum tersedia.";
     } catch (error) {
         $("stock-time").textContent = "Stok belum dapat ditampilkan.";
         const sessionError = error.status === 401 || error.status === 403;
@@ -415,13 +488,24 @@ async function copyCatalog() {
 for (const button of document.querySelectorAll("[data-view]")) {
     button.addEventListener("click", () => changeView(button.dataset.view));
 }
-for (const id of ["query", "color", "size", "status"]) {
+for (const id of filterIds) {
     $(id).addEventListener(id === "query" ? "input" : "change", () => {
         carouselIndex = 0;
         renderStock();
     });
 }
+$("clear-filters").addEventListener("click", () => {
+    for (const id of filterIds) $(id).value = "";
+    carouselIndex = 0;
+    renderStock();
+    $("query").focus();
+});
 $("stock-list").addEventListener("scroll", onCarouselScroll, {passive: true});
+$("stock-list").addEventListener("keydown", (event) => {
+    if (event.target !== $("stock-list") || !["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+    event.preventDefault();
+    moveCarousel(carouselIndex + (event.key === "ArrowRight" ? 1 : -1));
+});
 $("previous").addEventListener("click", () => moveCarousel(carouselIndex - 1));
 $("next").addEventListener("click", () => moveCarousel(carouselIndex + 1));
 $("refresh").addEventListener("click", load);

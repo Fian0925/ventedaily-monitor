@@ -3,34 +3,32 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <meta name="theme-color" content="#f7f8f5">
+    <meta name="theme-color" content="#102b26">
     <meta name="color-scheme" content="light">
-    <title>Ventedaily — Dashboard Reseller</title>
+    <title>Ventedaily · Dashboard Reseller</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='mini-app/dashboard.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='mini-app/dashboard.css', v=2) }}">
     <script src="https://telegram.org/js/telegram-web-app.js?59" defer></script>
-    <script src="{{ url_for('static', filename='mini-app/dashboard.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='mini-app/dashboard.js', v=2) }}" defer></script>
 </head>
 <body>
-    <header class="topbar">
-        <div class="shell topbar-inner">
-            <a href="#main" class="brand" aria-label="Ventedaily Dashboard">
-                <span class="brand-mark" aria-hidden="true">V</span>
-                <span>ventedaily<span class="brand-period">.</span></span>
-            </a>
-            <span id="mode" class="mode" hidden>Mode demo</span>
-        </div>
+    <header class="app-nav">
+        <a href="#main" class="brand" aria-label="Ventedaily Dashboard">
+            <span class="brand-mark" aria-hidden="true">V</span>
+            <span>Ventedaily</span>
+        </a>
+        <span id="mode" class="mode" hidden>Demo</span>
+
+        <nav class="tabs" aria-label="Menu dashboard">
+            <button type="button" data-view="stock" aria-controls="stock" aria-current="page"><span class="nav-icon icon-stock" aria-hidden="true"></span>Stok</button>
+            <button type="button" data-view="watch" aria-controls="watch"><span class="nav-icon icon-bell" aria-hidden="true"></span>Pantauan<span id="watch-count" class="count" hidden>0</span></button>
+            <button type="button" data-view="catalog" aria-controls="catalog"><span class="nav-icon icon-catalog" aria-hidden="true"></span>Katalog<span id="catalog-count" class="count" hidden>0</span></button>
+        </nav>
     </header>
 
     <main id="main" class="shell">
-        <nav class="tabs" aria-label="Menu dashboard">
-            <button type="button" data-view="stock" aria-controls="stock" aria-current="page"><span class="nav-icon icon-search" aria-hidden="true"></span>Cari Stok</button>
-            <button type="button" data-view="watch" aria-controls="watch"><span class="nav-icon icon-bell" aria-hidden="true"></span>Pantauan Saya<span id="watch-count" class="count" hidden>0</span></button>
-            <button type="button" data-view="catalog" aria-controls="catalog"><span class="nav-icon icon-catalog" aria-hidden="true"></span>Buat Katalog<span id="catalog-count" class="count" hidden>0</span></button>
-        </nav>
-
         <section id="notice" class="notice" hidden role="status">
             <p id="notice-text"></p>
             <button id="notice-action" type="button" class="button secondary" hidden></button>
@@ -38,33 +36,48 @@
 
         <section id="stock" class="view" aria-labelledby="stock-title">
             <div class="view-header">
-                <div><h1 id="stock-title">Cari stok</h1><p id="stock-time">Memuat stok…</p></div>
+                <div><h1 id="stock-title">Stok produk</h1><p id="stock-time">Memuat stok…</p></div>
                 <button id="refresh" class="button secondary" type="button" hidden>Muat ulang</button>
             </div>
-            <div class="filters">
-                <label class="search-field">
-                    <span class="nav-icon icon-search" aria-hidden="true"></span>
-                    <span class="sr-only">Cari nama produk</span>
-                    <input id="query" type="search" placeholder="Cari nama produk" autocomplete="off">
+
+            <div class="filters" role="group" aria-label="Filter stok">
+                <label class="field field-search">
+                    <span>Nama produk</span>
+                    <span class="field-control search-field">
+                        <span class="nav-icon icon-search" aria-hidden="true"></span>
+                        <input id="query" type="search" placeholder="Cari produk…" autocomplete="off">
+                    </span>
                 </label>
-                <label class="select-field">
-                    <span class="sr-only">Filter warna</span>
-                    <select id="color"><option value="">Semua warna</option></select>
+                <label class="field">
+                    <span>Warna</span>
+                    <span class="field-control select-field">
+                        <select id="color"><option value="">Semua</option></select>
+                    </span>
                 </label>
-                <label class="select-field">
-                    <span class="sr-only">Filter ukuran</span>
-                    <select id="size"><option value="">Semua ukuran</option></select>
+                <label class="field">
+                    <span>Ukuran</span>
+                    <span class="field-control select-field">
+                        <select id="size"><option value="">Semua</option></select>
+                    </span>
                 </label>
-                <label class="select-field">
-                    <span class="sr-only">Filter status stok</span>
-                    <select id="status">
-                        <option value="">Semua stok</option>
-                        <option value="available">Tersedia</option>
-                        <option value="ready">Stok terbatas</option>
-                        <option value="habis">Habis</option>
-                    </select>
+                <label class="field">
+                    <span>Status stok</span>
+                    <span class="field-control select-field">
+                        <select id="status">
+                            <option value="">Semua</option>
+                            <option value="available">Tersedia</option>
+                            <option value="ready">Terbatas</option>
+                            <option value="habis">Habis</option>
+                        </select>
+                    </span>
                 </label>
             </div>
+
+            <div class="result-bar">
+                <p id="result-count" role="status"></p>
+                <button id="clear-filters" class="clear-filters" type="button" hidden>Reset filter</button>
+            </div>
+
             <div id="stock-list" class="carousel" role="region" aria-label="Produk" tabindex="0"></div>
             <div id="carousel-controls" class="carousel-controls" hidden>
                 <button id="previous" class="button secondary" type="button" aria-controls="stock-list">Sebelumnya</button>
@@ -75,15 +88,15 @@
 
         <section id="watch" class="view" aria-labelledby="watch-title" hidden>
             <div class="view-header">
-                <div><h2 id="watch-title">Pantauan saya</h2><p id="watch-description">Notifikasi Telegram dikirim saat varian pantauan kembali tersedia.</p></div>
+                <div><h1 id="watch-title">Pantauan</h1><p id="watch-description">Notifikasi Telegram dikirim saat varian pantauan kembali tersedia.</p></div>
             </div>
             <div class="list" id="watch-list"></div>
         </section>
 
         <section id="catalog" class="view" aria-labelledby="catalog-title" hidden>
             <div class="view-header">
-                <div><h2 id="catalog-title">Buat katalog</h2><p>Susun daftar produk untuk dikirim ke WhatsApp.</p></div>
-                <button id="make-catalog" class="button primary" type="button" disabled>Buat teks katalog</button>
+                <div><h1 id="catalog-title">Katalog</h1><p>Susun daftar produk untuk dikirim ke WhatsApp.</p></div>
+                <button id="make-catalog" class="button primary" type="button" disabled>Buat teks</button>
             </div>
             <div class="list" id="catalog-list"></div>
             <div id="catalog-preview" class="catalog-preview" hidden>
