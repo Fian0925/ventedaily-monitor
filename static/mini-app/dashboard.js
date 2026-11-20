@@ -107,8 +107,8 @@ function changeView(view) {
 
 function stockInfo(value) {
     return {
-        aman: ["Tersedia", "available"],
-        ready: ["Terbatas", "low"],
+        aman: ["Aman", "available"],
+        ready: ["Ready", "low"],
         habis: ["Habis", "out"],
     }[value.toLowerCase()] || ["Tidak terdata", ""];
 }
@@ -218,19 +218,38 @@ function toggleProductOptions(anchor, product) {
     menu.firstElementChild?.focus({preventScroll: true});
 }
 
-function variantField(label) {
-    const field = node("label", "variant-field");
-    const picker = node("span", "field-control select-field");
-    const select = node("select");
-    picker.append(select);
-    field.append(node("span", "option-label", label), picker);
-    return {field, select};
-}
+function variantMatrix(variants, choose) {
+    const matrix = node("div", "variant-fields");
+    matrix.setAttribute("role", "group");
+    matrix.setAttribute("aria-label", "Warna dan ukuran");
+    const buttons = new Map();
+    const colors = new Map();
 
-function setVariantOptions(select, choices, selected) {
-    select.replaceChildren(...choices.map(([value, name]) => new Option(name, value)));
-    select.value = selected;
-    select.title = select.selectedOptions[0]?.label || "";
+    for (const variant of variants) {
+        const key = filterKey(variant.color);
+        if (!colors.has(key)) colors.set(key, []);
+        colors.get(key).push(variant);
+    }
+
+    for (const group of colors.values()) {
+        const line = node("div", "variant-line");
+        const color = group[0].color || "Standar";
+        const sizes = node("div", "size-list");
+        for (const variant of group.sort((left, right) => compareSizes(left.size, right.size))) {
+            const size = formatSize(variant.size);
+            const [label, tone] = stockInfo(variant.stock);
+            const button = node("button", `size-chip ${tone}`, size);
+            button.type = "button";
+            button.title = `${color} · ${size} · ${label}`;
+            button.setAttribute("aria-label", button.title);
+            button.addEventListener("click", () => choose(variant));
+            sizes.append(button);
+            buttons.set(variant.id, button);
+        }
+        line.append(node("span", "variant-color", color), sizes);
+        matrix.append(line);
+    }
+    return {matrix, buttons};
 }
 
 function productCard(group) {
@@ -244,19 +263,6 @@ function productCard(group) {
     const meta = node("p", "variant-count", `${category}${group.variants.length} varian`);
     meta.title = meta.textContent;
     title.append(name, meta);
-
-    const colors = variantField("Warna");
-    const sizes = variantField("Ukuran");
-    const fields = node("div", "variant-fields");
-    fields.append(colors.field, sizes.field);
-    main.append(title, fields);
-
-    const groupedColors = new Map();
-    for (const product of group.variants) {
-        const key = filterKey(product.color);
-        if (!groupedColors.has(key)) groupedColors.set(key, []);
-        groupedColors.get(key).push(product);
-    }
 
     const summary = node("div", "card-summary");
     const heading = node("div", "summary-heading");
@@ -276,12 +282,13 @@ function productCard(group) {
 
     const previous = group.variants.find(({id}) => id === selectedVariants.get(group.key));
     let selected = previous || group.variants.find(available) || group.variants[0];
-    setVariantOptions(colors.select, [...groupedColors].map(([key, items]) => [key, items[0].color || "Standar"]), filterKey(selected.color));
+    const {matrix, buttons} = variantMatrix(group.variants, choose);
+    main.append(title, matrix);
 
     function showVariant() {
-        const variants = groupedColors.get(filterKey(selected.color));
-        const options = [...new Set(variants.map(({size}) => size))].sort(compareSizes);
-        setVariantOptions(sizes.select, options.map((size) => [size, formatSize(size)]), selected.size);
+        for (const [id, button] of buttons) {
+            button.setAttribute("aria-pressed", String(id === selected.id));
+        }
         price.textContent = selected.price || "—";
         price.title = selected.price || "Harga belum tersedia";
         status.replaceChildren(stockPill(selected));
@@ -293,16 +300,6 @@ function productCard(group) {
         showVariant();
     }
 
-    colors.select.addEventListener("change", () => {
-        const variants = groupedColors.get(colors.select.value);
-        colors.select.title = colors.select.selectedOptions[0]?.label || "";
-        const match = variants.find(({size}) => size === selected.size);
-        choose(match || variants.find(available) || variants[0]);
-    });
-    sizes.select.addEventListener("change", () => {
-        const variants = groupedColors.get(colors.select.value);
-        choose(variants.find(({size}) => size === sizes.select.value));
-    });
     options.addEventListener("click", () => toggleProductOptions(options, selected));
 
     showVariant();
@@ -447,6 +444,7 @@ function renderStock() {
     filteredGroups = groupMatchingProducts(query);
 
     const count = filteredGroups.length;
+    $("stock-legend").hidden = !count;
     $("result-count").textContent = loaded ? `${count} produk${query ? " ditemukan" : ""}` : "";
     $("clear-filters").hidden = !filterIds.some((id) => $(id).value);
     if (!filteredGroups.length) {
