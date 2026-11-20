@@ -318,8 +318,43 @@ function filterKey(value) {
     return value ? value.toLocaleLowerCase("id") : "";
 }
 
-function groupMatchingProducts() {
-    const terms = $("query").value.trim().toLocaleLowerCase("id").split(/\s+/).filter(Boolean);
+function searchText(value) {
+    return filterKey(value).normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+}
+
+const exactSizeTerms = new Set(sizeOrder.map(searchText).filter((size) => !size.includes(" ")));
+
+function matchesSearchTerm(text, term) {
+    if (term.length < 3) return text.split(" ").some((word) => word.startsWith(term));
+    return text.includes(term);
+}
+
+function searchRank(product, query, terms) {
+    if (!query) return 0;
+    const name = searchText(product.name);
+    if (name === query) return 3;
+
+    const color = searchText(product.color);
+    const size = searchText(product.size);
+    const category = searchText(product.category);
+    const fields = `${name} ${color} ${size} ${category}`;
+    for (const term of terms) {
+        // With a product query, a size token must match the actual variant size.
+        if (terms.length > 1 && exactSizeTerms.has(term)) {
+            if (!size.split(" ").includes(term)) return -1;
+        } else if (!matchesSearchTerm(fields, term)) {
+            return -1;
+        }
+    }
+
+    if (name.startsWith(query)) return 2;
+    if (terms.some((term) => matchesSearchTerm(name, term))) return 1;
+    return 0;
+}
+
+function groupMatchingProducts(query) {
+    const terms = query ? query.split(" ") : [];
     const category = $("category").value;
     const color = $("color").value;
     const size = $("size").value;
@@ -327,18 +362,22 @@ function groupMatchingProducts() {
     const groups = new Map();
 
     for (const product of products) {
-        const keywords = `${product.name} ${product.color || ""} ${product.size}`.toLocaleLowerCase("id");
         if ((category && filterKey(product.category) !== category)
                 || (color && filterKey(product.color) !== color)
                 || (size && product.size !== size)
-                || (status && (status === "available" ? !available(product) : product.stock.toLowerCase() !== status))
-                || !terms.every((term) => keywords.includes(term))) continue;
-        const key = product.name.toLocaleLowerCase("id");
-        if (!groups.has(key)) groups.set(key, {key, name: product.name, variants: []});
-        groups.get(key).variants.push(product);
+                || (status && (status === "available" ? !available(product) : product.stock.toLowerCase() !== status))) continue;
+
+        const rank = searchRank(product, query, terms);
+        if (rank < 0) continue;
+        const key = filterKey(product.name);
+        if (!groups.has(key)) groups.set(key, {key, name: product.name, variants: [], rank});
+        const group = groups.get(key);
+        group.variants.push(product);
+        group.rank = Math.max(group.rank, rank);
     }
 
-    return [...groups.values()].sort((left, right) => left.name.localeCompare(right.name, "id", {numeric: true}));
+    return [...groups.values()].sort((left, right) => right.rank - left.rank
+        || left.name.localeCompare(right.name, "id", {numeric: true}));
 }
 
 function pageCount() {
@@ -401,16 +440,23 @@ function onCarouselScroll() {
 
 function renderStock() {
     closeProductOptions();
-    filteredGroups = groupMatchingProducts();
-    $("result-count").textContent = loaded ? `${filteredGroups.length} produk` : "";
+    const search = $("query").value.trim();
+    const query = searchText(search);
+    const carousel = $("stock-list");
+    carousel.classList.toggle("is-search", Boolean(query));
+    filteredGroups = groupMatchingProducts(query);
+
+    const count = filteredGroups.length;
+    $("result-count").textContent = loaded ? `${count} produk${query ? " ditemukan" : ""}` : "";
     $("clear-filters").hidden = !filterIds.some((id) => $(id).value);
     if (!filteredGroups.length) {
         currentPage = 0;
         clearTimeout(scrollTimer);
         resizeActivePage?.disconnect();
-        $("stock-list").style.height = "";
+        carousel.style.height = "";
         $("carousel-controls").hidden = true;
-        empty("stock-list", loaded ? "Tidak ada produk yang cocok." : "Stok belum dimuat.");
+        const message = query ? `Tidak ada produk untuk “${search}”.` : "Tidak ada produk yang cocok dengan filter.";
+        empty("stock-list", loaded ? message : "Stok belum dimuat.");
         return;
     }
     renderPage(currentPage);

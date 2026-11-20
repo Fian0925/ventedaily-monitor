@@ -9,9 +9,9 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='mini-app/dashboard.css', v=7) }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='mini-app/dashboard.css', v=8) }}">
     <script src="https://telegram.org/js/telegram-web-app.js?59" defer></script>
-    <script src="{{ url_for('static', filename='mini-app/dashboard.js', v=6) }}" defer></script>
+    <script src="{{ url_for('static', filename='mini-app/dashboard.js', v=8) }}" defer></script>
 </head>
 <body>
     <header class="app-nav">
@@ -44,10 +44,10 @@
 
             <div class="filters" role="group" aria-label="Filter stok">
                 <label class="field field-search">
-                    <span>Nama produk</span>
+                    <span>Cari produk</span>
                     <span class="field-control search-field">
                         <span class="nav-icon icon-search" aria-hidden="true"></span>
-                        <input id="query" type="search" placeholder="Cari produk…" autocomplete="off">
+                        <input id="query" type="search" placeholder="Nama, warna, atau ukuran" autocomplete="off">
                     </span>
                 </label>
                 <label class="field">
