@@ -30,13 +30,17 @@ class MonitorTelegramBot(telebot.TeleBot):
                 reason = "webhook_active" if "webhook" in exc.description.lower() else "polling_conflict"
             else:
                 reason = f"telegram_http_{exc.error_code}"
-            self.poll_result = (time.monotonic(), reason)
+            self.poll_result = (time.monotonic(), {"reason": reason})
             raise
-        except requests.RequestException:
-            self.poll_result = (time.monotonic(), "network_error")
+        except requests.RequestException as exc:
+            self.poll_result = (time.monotonic(), {
+                "reason": "network_error",
+                "operation": request.__name__,
+                "exception": type(exc).__name__,
+            })
             raise
         except Exception:
-            self.poll_result = (time.monotonic(), "polling_error")
+            self.poll_result = (time.monotonic(), {"reason": "polling_error"})
             raise
 
     def get_me(self):
@@ -69,14 +73,17 @@ def health():
     elif bot.poll_result is None:
         telegram = {"status": "starting"}
     else:
-        last_poll, reason = bot.poll_result
-        if reason:
-            telegram = {"status": "error", "reason": reason}
+        last_poll, error = bot.poll_result
+        if error:
+            telegram = {"status": "error", **error}
         elif time.monotonic() - last_poll > 90:
             telegram = {"status": "stalled"}
         else:
             telegram = {"status": "ready"}
-    response = make_response({"web": "ok", "telegram": telegram})
+    payload = {"web": "ok", "telegram": telegram}
+    if revision := os.getenv("RENDER_GIT_COMMIT"):
+        payload["revision"] = revision[:7]
+    response = make_response(payload)
     response.headers["Cache-Control"] = "no-store"
     return response
 

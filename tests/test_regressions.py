@@ -27,6 +27,13 @@ class MonitorRegressionTests(unittest.TestCase):
         bot = monitor.MonitorTelegramBot("123:offline-health-test")
         with patch.object(monitor, "telegram_thread", fake_thread), patch.object(monitor, "bot", bot):
             self.assertEqual(client.get("/healthz").get_json()["telegram"]["status"], "starting")
+            with patch.object(apihelper, "get_me", side_effect=requests.ReadTimeout("private request details")):
+                with self.assertRaises(requests.ReadTimeout):
+                    bot.get_me()
+            self.assertEqual(client.get("/healthz").get_json()["telegram"], {
+                "status": "error", "reason": "network_error",
+                "operation": "get_me", "exception": "ReadTimeout",
+            })
             token_error = apihelper.ApiTelegramException("getMe", None, {
                 "error_code": 401, "description": "Unauthorized",
             })
