@@ -11,6 +11,7 @@ let products = [];
 let watchlist = new Map();
 const selection = new Set();
 const selectedVariants = new Map();
+const openOptions = new Set();
 const PAGE_SIZE = 12;
 const filterIds = ["query", "category", "color", "size", "status"];
 let filteredGroups = [];
@@ -242,13 +243,29 @@ function productCard(group) {
     }
 
     const summary = node("div", "card-summary");
+    const heading = node("div", "summary-heading");
+    const options = node("button", "options-toggle", "Opsi");
+    options.type = "button";
+    options.setAttribute("aria-label", `Opsi untuk ${group.name}`);
+    heading.append(node("span", "summary-label", "Harga"), options);
+
     const details = node("div", "summary-details");
     details.setAttribute("aria-live", "polite");
     const price = node("p", "summary-price");
     const stock = node("div");
+    details.append(price, stock);
+
     const actions = node("div", "actions");
-    details.append(node("span", "summary-label", "Harga"), price, stock);
-    summary.append(details, actions);
+    actions.hidden = !openOptions.has(group.key);
+    options.setAttribute("aria-expanded", String(!actions.hidden));
+    options.addEventListener("click", () => {
+        actions.hidden = !actions.hidden;
+        if (actions.hidden) openOptions.delete(group.key);
+        else openOptions.add(group.key);
+        options.setAttribute("aria-expanded", String(!actions.hidden));
+        syncCarouselHeight();
+    });
+    summary.append(heading, details, actions);
 
     const previous = group.variants.find(({id}) => id === selectedVariants.get(group.key));
     let selected = previous || group.variants.find(available) || group.variants[0];

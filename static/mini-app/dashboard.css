@@ -132,13 +132,22 @@ h1 { margin: 0; font-size: clamp(1.75rem, 3.15vw, 2.45rem); line-height: 1.08; f
 .chip[aria-pressed="true"] { box-shadow: inset 0 0 0 1px #779d8e; }
 .swatch { width: .65rem; height: .65rem; flex: 0 0 .65rem; border-radius: 50%; background: var(--swatch); border: 1px solid #172b2b28; }
 .card-summary {
-    min-width: 0; display: grid; gap: .46rem;
-    padding: .6rem .78rem; background: var(--tint); border-top: 1px solid var(--line);
+    min-width: 0; display: grid; gap: .23rem;
+    padding: .5rem .78rem .6rem; background: var(--tint); border-top: 1px solid var(--line);
 }
 .summary-label { display: block; margin: 0 0 .25rem; color: var(--muted); font-size: .84rem; font-weight: 650; }
 .summary-price { margin: 0 0 .65rem; font-size: clamp(1.04rem, 1.8vw, 1.38rem); font-weight: 800; letter-spacing: -.052em; overflow-wrap: anywhere; }
 .summary-details { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: .12rem .3rem; }
-.summary-details .summary-label { flex-basis: 100%; margin: 0; font-size: .73rem; }
+.summary-heading { display: flex; justify-content: space-between; align-items: center; gap: .3rem; }
+.summary-heading .summary-label { margin: 0; font-size: .73rem; }
+.options-toggle {
+    display: inline-flex; align-items: center; gap: .27rem; min-height: 1.85rem;
+    border: 1px solid transparent; border-radius: .38rem; padding: .14rem .4rem;
+    background: transparent; color: var(--primary); font-size: .75rem; font-weight: 700;
+}
+.options-toggle::before { content: "⋯"; font-size: .95rem; line-height: 1; }
+.options-toggle:hover, .options-toggle[aria-expanded="true"] { border-color: var(--line); background: var(--surface); }
+.card-summary .actions { margin-top: .25rem; }
 .summary-details .summary-price { margin: 0; }
 .card-summary .actions .button { flex: 1 1 auto; min-height: 2.22rem; padding: .32rem .4rem; font-size: .77rem; }
 .carousel-controls { display: flex; align-items: center; gap: .38rem; flex: 0 0 auto; }
