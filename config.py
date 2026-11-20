@@ -25,5 +25,8 @@ CHECK_INTERVAL = 5
 # Biaya tambahan per produk (ditambahkan ke modal)
 BIAYA_TAMBAHAN = 1250
 
-# URL HTTPS untuk rute /mini/ pada hosting bot.
+# URL HTTPS untuk rute /mini/ pada hosting bot. Render menyediakan URL publiknya.
 MINI_APP_URL = os.getenv("MINI_APP_URL", "").strip()
+_render_origin = os.getenv("RENDER_EXTERNAL_URL", "").strip().rstrip("/")
+if not MINI_APP_URL and _render_origin:
+    MINI_APP_URL = f"{_render_origin}/mini/"

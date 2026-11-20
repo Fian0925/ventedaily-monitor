@@ -55,7 +55,9 @@ def dashboard_url():
     url = config.MINI_APP_URL
     try:
         parts = urlsplit(url)
-        return url if parts.scheme == "https" and parts.hostname else ""
+        if parts.scheme == "https" and parts.hostname and not parts.username and not parts.password:
+            return url
+        return ""
     except ValueError:
         return ""
 
@@ -69,6 +71,12 @@ def register_handlers(bot):
         elif message.chat.type != "private":
             bot.reply_to(message, "Buka chat pribadi dengan bot untuk mengakses dashboard.")
         elif commands._check_subscription(bot, message):
+            try:
+                database.call_rpc("get_mini_watchlist", {"p_chat_id": str(message.chat.id)})
+            except requests.RequestException as exc:
+                print(f"Mini App readiness check failed: {exc}")
+                bot.reply_to(message, "Dashboard belum siap. Silakan coba lagi nanti.")
+                return
             keyboard = types.InlineKeyboardMarkup().add(
                 types.InlineKeyboardButton("Buka Dashboard", web_app=types.WebAppInfo(url))
             )
@@ -221,7 +229,8 @@ def send_restock_alerts(bot):
     try:
         alerts = database.call_rpc("claim_watch_restock_alerts", {})
     except requests.RequestException as exc:
-        print(f"Watchlist alert query failed: {exc}")
+        if exc.response is None or exc.response.status_code != 404:
+            print(f"Watchlist alert query failed: {exc}")
         return
     for alert in alerts:
         keyboard = None

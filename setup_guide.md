@@ -11,5 +11,5 @@ Jika ada invoice lama berstatus `processing`, cocokkan mutasi dan masa aktif pen
 ## Telegram Mini App
 
 1. Jalankan [mini_app_setup.sql](mini_app_setup.sql) setelah migrasi Supabase utama. Skrip menambah tabel pantauan varian dan antrean notifikasi restock.
-2. Atur `MINI_APP_URL` di hosting ke URL HTTPS bot yang berakhir dengan `/mini/`. Gunakan alamat publik layanan Flask yang sama.
+2. Pada Render Web Service, bot memakai `RENDER_EXTERNAL_URL` untuk membuka rute `/mini/`. Bila memakai hosting lain atau domain khusus, atur `MINI_APP_URL` ke URL HTTPS lengkap yang mengarah ke rute `/mini/`.
 3. Deploy versi ini. Buka chat pribadi dengan bot, ketik `/dashboard`, lalu tekan **Buka Dashboard**. Pengguna trial dan pelanggan aktif dapat memakai data asli. Membuka URL langsung di browser akan menampilkan demo dengan data contoh.

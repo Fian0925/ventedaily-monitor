@@ -1,12 +1,15 @@
 import hashlib
 import hmac
 import json
+import os
+import runpy
 import time
 import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 from urllib.parse import urlencode
 
+import requests
 from flask import Flask
 
 import config
@@ -131,7 +134,17 @@ class MiniAppTests(unittest.TestCase):
         self.assertFalse(ready.get_json()["uses_cost"])
         self.assertEqual(sold_out.status_code, 409)
 
-    def test_dashboard_command_sends_https_web_app_button(self):
+    def test_render_url_is_used_when_no_override_is_set(self):
+        with patch.dict(os.environ, {"MINI_APP_URL": "", "RENDER_EXTERNAL_URL": "https://bot.onrender.com/"}):
+            settings = runpy.run_path(config.__file__)
+            self.assertEqual(settings["MINI_APP_URL"], "https://bot.onrender.com/mini/")
+        with patch.dict(os.environ, {
+            "MINI_APP_URL": "https://dashboard.example/mini/",
+            "RENDER_EXTERNAL_URL": "https://bot.onrender.com",
+        }):
+            self.assertEqual(runpy.run_path(config.__file__)["MINI_APP_URL"], "https://dashboard.example/mini/")
+
+    def test_dashboard_waits_for_schema_before_showing_web_app_button(self):
         bot = Mock()
         handlers = []
 
@@ -145,11 +158,21 @@ class MiniAppTests(unittest.TestCase):
         with (
             patch.object(config, "MINI_APP_URL", "https://example.com/mini/"),
             patch.object(mini_app.commands, "_check_subscription", return_value=True),
+            patch.object(database, "call_rpc", side_effect=[requests.HTTPError(), []]) as check,
         ):
             mini_app.register_handlers(bot)
-            handlers[0](SimpleNamespace(chat=SimpleNamespace(id=42, type="private")))
-        keyboard = bot.reply_to.call_args.kwargs["reply_markup"]
-        self.assertEqual(keyboard.to_dict()["inline_keyboard"][0][0]["web_app"]["url"], "https://example.com/mini/")
+            message = SimpleNamespace(chat=SimpleNamespace(id=42, type="private"))
+            handlers[0](message)
+            self.assertIn("Dashboard belum siap", bot.reply_to.call_args.args[1])
+            self.assertNotIn("reply_markup", bot.reply_to.call_args.kwargs)
+            check.assert_called_once_with("get_mini_watchlist", {"p_chat_id": "42"})
+
+            handlers[0](message)
+            keyboard = bot.reply_to.call_args.kwargs["reply_markup"]
+            self.assertEqual(
+                keyboard.to_dict()["inline_keyboard"][0][0]["web_app"]["url"],
+                "https://example.com/mini/",
+            )
 
     def test_due_alerts_are_acknowledged_after_sending(self):
         pending = {"chat_id": "42", "event_id": 7, "product_name": "Produk Navy SIZE L"}
