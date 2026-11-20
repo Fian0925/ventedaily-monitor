@@ -2,6 +2,7 @@ import os
 import unittest
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+from telebot import apihelper
 from unittest.mock import Mock, patch
 
 import requests
@@ -17,6 +18,30 @@ with patch.dict(os.environ, {"TELEGRAM_BOT_TOKEN": "123:offline-test"}):
 
 
 class MonitorRegressionTests(unittest.TestCase):
+    def test_health_endpoint_reports_sanitized_telegram_polling_state(self):
+        client = monitor.app.test_client()
+        self.assertEqual(client.get("/healthz").get_json()["telegram"]["status"], "not_started")
+
+        fake_thread = Mock()
+        fake_thread.is_alive.return_value = True
+        bot = monitor.MonitorTelegramBot("123:offline-health-test")
+        with patch.object(monitor, "telegram_thread", fake_thread), patch.object(monitor, "bot", bot):
+            self.assertEqual(client.get("/healthz").get_json()["telegram"]["status"], "starting")
+            error = apihelper.ApiTelegramException("getUpdates", None, {
+                "error_code": 409, "description": "Conflict: can't use getUpdates method while webhook is active",
+            })
+            with patch.object(apihelper, "get_updates", side_effect=error):
+                with self.assertRaises(apihelper.ApiTelegramException):
+                    bot.get_updates()
+            response = client.get("/healthz")
+            self.assertEqual(response.get_json()["telegram"], {
+                "status": "error", "reason": "webhook_active",
+            })
+            self.assertEqual(response.headers["Cache-Control"], "no-store")
+            with patch.object(apihelper, "get_updates", return_value=[]):
+                self.assertEqual(bot.get_updates(), [])
+            self.assertEqual(client.get("/healthz").get_json()["telegram"]["status"], "ready")
+
     def test_stock_api_failure_keeps_reseller_price_but_updates_stock(self):
         product = "(Couple) Produk Blue SIZE L"
         catalog = [{"name": product, "status": "Aman", "selling_price": 150000}]

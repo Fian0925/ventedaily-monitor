@@ -17,13 +17,62 @@ API_HEADERS = {
     "User-Agent": "VentedailyMonitorBot/2.0",
 }
 
+class MonitorTelegramBot(telebot.TeleBot):
+    def __init__(self, token):
+        super().__init__(token)
+        self.poll_result = None
+
+    def get_updates(self, *args, **kwargs):
+        try:
+            updates = super().get_updates(*args, **kwargs)
+        except telebot.apihelper.ApiTelegramException as exc:
+            if exc.error_code == 409:
+                reason = "webhook_active" if "webhook" in exc.description.lower() else "polling_conflict"
+            else:
+                reason = f"telegram_http_{exc.error_code}"
+            self.poll_result = (time.monotonic(), reason)
+            raise
+        except requests.RequestException:
+            self.poll_result = (time.monotonic(), "network_error")
+            raise
+        except Exception:
+            self.poll_result = (time.monotonic(), "polling_error")
+            raise
+        self.poll_result = (time.monotonic(), None)
+        return updates
+
+
 app = Flask(__name__)
 app.register_blueprint(mini_app.mini_app)
-bot = telebot.TeleBot(config.TELEGRAM_BOT_TOKEN)
+bot = MonitorTelegramBot(config.TELEGRAM_BOT_TOKEN)
+telegram_thread = None
+
 
 @app.route('/')
 def home():
     return "Bot Monitoring Ventedaily Sedang Berjalan 24/7!"
+
+
+@app.get("/healthz")
+def health():
+    if telegram_thread is None:
+        telegram = {"status": "not_started"}
+    elif not telegram_thread.is_alive():
+        telegram = {"status": "stopped"}
+    elif bot.poll_result is None:
+        telegram = {"status": "starting"}
+    else:
+        last_poll, reason = bot.poll_result
+        if reason:
+            telegram = {"status": "error", "reason": reason}
+        elif time.monotonic() - last_poll > 90:
+            telegram = {"status": "stalled"}
+        else:
+            telegram = {"status": "ready"}
+    response = make_response({"web": "ok", "telegram": telegram})
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
 
 @app.route('/api/data')
 def get_data():
@@ -637,8 +686,13 @@ if __name__ == "__main__":
     t.start()
     
     # Start the telegram bot listener
-    t2 = threading.Thread(target=lambda: bot.infinity_polling(), daemon=True)
-    t2.start()
+    telegram_thread = threading.Thread(
+        target=bot.infinity_polling,
+        kwargs={"allowed_updates": ["message", "callback_query"]},
+        name="telegram-polling",
+        daemon=True,
+    )
+    telegram_thread.start()
     
     # Start the web server (needed for Render.com to not crash)
     port = int(os.environ.get("PORT", 10000))
