@@ -9,9 +9,9 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='mini-app/dashboard.css', v=5) }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='mini-app/dashboard.css', v=6) }}">
     <script src="https://telegram.org/js/telegram-web-app.js?59" defer></script>
-    <script src="{{ url_for('static', filename='mini-app/dashboard.js', v=5) }}" defer></script>
+    <script src="{{ url_for('static', filename='mini-app/dashboard.js', v=6) }}" defer></script>
 </head>
 <body>
     <header class="app-nav">
@@ -121,6 +121,7 @@
                 <button id="copy" type="button" class="button primary">Salin teks</button>
             </div>
         </section>
+        <div id="product-options" class="product-options" role="group" aria-label="Aksi produk" hidden></div>
         <p id="feedback" class="toast" role="status" aria-live="polite" hidden></p>
     </main>
 </body>

@@ -11,7 +11,7 @@ let products = [];
 let watchlist = new Map();
 const selection = new Set();
 const selectedVariants = new Map();
-const openOptions = new Set();
+let optionsAnchor = null;
 const PAGE_SIZE = 12;
 const filterIds = ["query", "category", "color", "size", "status"];
 let filteredGroups = [];
@@ -93,6 +93,7 @@ function feedback(message) {
 }
 
 function changeView(view) {
+    closeProductOptions();
     activeView = view;
     for (const button of document.querySelectorAll("[data-view]")) {
         const id = button.dataset.view;
@@ -185,121 +186,124 @@ function productRow(product, context, lastRestock = null) {
     return row;
 }
 
-const swatchColors = [
-    [/black|charcoal/, "#2e3336"], [/navy|denim|blue/, "#334d79"], [/cream|bone|white|vanilla|sand/, "#eee3cf"],
-    [/mocha|mocca|taupe|wood|brown|choco|latte|coffee|espresso/, "#9d715b"], [/sage|olive|green|mint|moss/, "#7d997e"],
-    [/mauve|pink|rose|blush/, "#be8c9f"], [/red|burgundy|maroon/, "#893c4b"], [/purple|lilac|lavender/, "#9c8dad"],
-    [/gray|grey|ash|smoke|stone/, "#808b90"], [/peach|orange|salem/, "#d69a7f"], [/mustard|yellow|gold/, "#d8af63"],
-];
-
-function variantGroup(label) {
-    const field = node("div", "option-group");
-    const options = node("div", "options");
-    options.setAttribute("role", "group");
-    options.setAttribute("aria-label", label);
-    field.append(node("span", "option-label", label), options);
-    return {field, options};
+function closeProductOptions(restoreFocus = false) {
+    if (!optionsAnchor) return;
+    const anchor = optionsAnchor;
+    optionsAnchor = null;
+    anchor.setAttribute("aria-expanded", "false");
+    $("product-options").hidden = true;
+    if (restoreFocus) anchor.focus({preventScroll: true});
 }
 
-function variantChip(label, selected, change, swatchColor) {
-    const button = node("button", "chip");
-    button.type = "button";
-    button.setAttribute("aria-pressed", String(selected));
-    if (swatchColor) {
-        const swatch = node("span", "swatch");
-        swatch.setAttribute("aria-hidden", "true");
-        swatch.style.setProperty("--swatch", swatchColor);
-        button.append(swatch);
+function toggleProductOptions(anchor, product) {
+    if (optionsAnchor === anchor) {
+        closeProductOptions();
+        return;
     }
-    button.append(document.createTextNode(label));
-    button.addEventListener("click", change);
-    return button;
+    closeProductOptions();
+
+    const menu = $("product-options");
+    menu.replaceChildren(...variantActionButtons(product, "stock"));
+    optionsAnchor = anchor;
+    anchor.setAttribute("aria-expanded", "true");
+    menu.hidden = false;
+    const rect = anchor.getBoundingClientRect();
+    const margin = 8;
+    const maxLeft = window.innerWidth - menu.offsetWidth - margin;
+    const left = Math.max(margin, Math.min(maxLeft, rect.right - menu.offsetWidth));
+    const fitsBelow = rect.bottom + menu.offsetHeight + margin < window.innerHeight;
+    const top = fitsBelow ? rect.bottom + 4 : Math.max(margin, rect.top - menu.offsetHeight - 4);
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
+    menu.firstElementChild?.focus({preventScroll: true});
+}
+
+function variantField(label) {
+    const field = node("label", "variant-field");
+    const picker = node("span", "field-control select-field");
+    const select = node("select");
+    picker.append(select);
+    field.append(node("span", "option-label", label), picker);
+    return {field, select};
+}
+
+function setVariantOptions(select, choices, selected) {
+    select.replaceChildren(...choices.map(([value, name]) => new Option(name, value)));
+    select.value = selected;
+    select.title = select.selectedOptions[0]?.label || "";
 }
 
 function productCard(group) {
     const card = node("article", "product-card");
     const main = node("div", "card-main");
     const title = node("header", "card-title");
+    const name = node("h2", "", group.name);
+    name.title = group.name;
     const categories = new Set(group.variants.map(({category}) => category).filter(Boolean));
     const category = categories.size === 1 ? `${[...categories][0]} · ` : "";
-    title.append(node("h2", "", group.name), node("p", "variant-count", `${category}${group.variants.length} varian`));
+    const meta = node("p", "variant-count", `${category}${group.variants.length} varian`);
+    meta.title = meta.textContent;
+    title.append(name, meta);
 
-    const colors = variantGroup("Warna");
-    const sizes = variantGroup("Ukuran");
+    const colors = variantField("Warna");
+    const sizes = variantField("Ukuran");
+    const fields = node("div", "variant-fields");
+    fields.append(colors.field, sizes.field);
+    main.append(title, fields);
+
     const groupedColors = new Map();
     for (const product of group.variants) {
         const key = filterKey(product.color);
         if (!groupedColors.has(key)) groupedColors.set(key, []);
         groupedColors.get(key).push(product);
     }
-    const singleVariant = group.variants.length === 1;
-    colors.field.hidden = singleVariant || (groupedColors.size === 1 && groupedColors.has(""));
-    sizes.field.hidden = singleVariant;
-    main.append(title, colors.field, sizes.field);
-    if (singleVariant) {
-        const [product] = group.variants;
-        const subtitle = [product.color, formatSize(product.size)].filter(Boolean).join(" · ");
-        main.append(node("p", "single-variant", subtitle));
-    }
 
     const summary = node("div", "card-summary");
     const heading = node("div", "summary-heading");
+    const status = node("div", "summary-status");
+    status.setAttribute("aria-live", "polite");
+    heading.append(node("span", "summary-label", "Harga"), status);
+    const details = node("div", "summary-details");
+    const price = node("p", "summary-price");
+    price.setAttribute("aria-live", "polite");
     const options = node("button", "options-toggle", "Opsi");
     options.type = "button";
     options.setAttribute("aria-label", `Opsi untuk ${group.name}`);
-    heading.append(node("span", "summary-label", "Harga"), options);
-
-    const details = node("div", "summary-details");
-    details.setAttribute("aria-live", "polite");
-    const price = node("p", "summary-price");
-    const stock = node("div");
-    details.append(price, stock);
-
-    const actions = node("div", "actions");
-    actions.hidden = !openOptions.has(group.key);
-    options.setAttribute("aria-expanded", String(!actions.hidden));
-    options.addEventListener("click", () => {
-        actions.hidden = !actions.hidden;
-        if (actions.hidden) openOptions.delete(group.key);
-        else openOptions.add(group.key);
-        options.setAttribute("aria-expanded", String(!actions.hidden));
-        syncCarouselHeight();
-    });
-    summary.append(heading, details, actions);
+    options.setAttribute("aria-controls", "product-options");
+    options.setAttribute("aria-expanded", "false");
+    details.append(price, options);
+    summary.append(heading, details);
 
     const previous = group.variants.find(({id}) => id === selectedVariants.get(group.key));
     let selected = previous || group.variants.find(available) || group.variants[0];
+    setVariantOptions(colors.select, [...groupedColors].map(([key, items]) => [key, items[0].color || "Standar"]), filterKey(selected.color));
 
-    function choose(product, options) {
+    function showVariant() {
+        const variants = groupedColors.get(filterKey(selected.color));
+        const options = [...new Set(variants.map(({size}) => size))].sort(compareSizes);
+        setVariantOptions(sizes.select, options.map((size) => [size, formatSize(size)]), selected.size);
+        price.textContent = selected.price || "—";
+        price.title = selected.price || "Harga belum tersedia";
+        status.replaceChildren(stockPill(selected));
+    }
+
+    function choose(product) {
         selected = product;
         selectedVariants.set(group.key, selected.id);
         showVariant();
-        options.querySelector('[aria-pressed="true"]')?.focus({preventScroll: true});
     }
 
-    function showVariant() {
-        const currentColor = filterKey(selected.color);
-        const colorButtons = [];
-        for (const [key, variants] of groupedColors) {
-            const color = variants[0].color || "Standar";
-            const swatch = swatchColors.find(([pattern]) => pattern.test(key))?.[1];
-            colorButtons.push(variantChip(color, key === currentColor, () => {
-                const match = variants.find(({size}) => size === selected.size);
-                choose(match || variants.find(available) || variants[0], colors.options);
-            }, swatch));
-        }
-        colors.options.replaceChildren(...colorButtons);
-
-        const sizesForColor = new Map(groupedColors.get(currentColor).map((product) => [product.size, product]));
-        sizes.options.replaceChildren(...[...sizesForColor.keys()].sort(compareSizes).map((size) => {
-            const product = sizesForColor.get(size);
-            return variantChip(formatSize(size), size === selected.size, () => choose(product, sizes.options));
-        }));
-
-        price.textContent = selected.price || "Belum tersedia";
-        stock.replaceChildren(stockPill(selected));
-        actions.replaceChildren(...variantActionButtons(selected, "stock"));
-    }
+    colors.select.addEventListener("change", () => {
+        const variants = groupedColors.get(colors.select.value);
+        colors.select.title = colors.select.selectedOptions[0]?.label || "";
+        const match = variants.find(({size}) => size === selected.size);
+        choose(match || variants.find(available) || variants[0]);
+    });
+    sizes.select.addEventListener("change", () => {
+        const variants = groupedColors.get(colors.select.value);
+        choose(variants.find(({size}) => size === sizes.select.value));
+    });
+    options.addEventListener("click", () => toggleProductOptions(options, selected));
 
     showVariant();
     card.append(main, summary);
@@ -350,6 +354,7 @@ function syncCarouselHeight(page = $("stock-list").querySelector(".is-current"))
 }
 
 function renderPage(index) {
+    closeProductOptions();
     clearTimeout(scrollTimer);
     const total = pageCount();
     if (!total) return;
@@ -382,6 +387,7 @@ function renderPage(index) {
 }
 
 function onCarouselScroll() {
+    closeProductOptions();
     clearTimeout(scrollTimer);
     scrollTimer = setTimeout(() => {
         const carousel = $("stock-list");
@@ -394,6 +400,7 @@ function onCarouselScroll() {
 }
 
 function renderStock() {
+    closeProductOptions();
     filteredGroups = groupMatchingProducts();
     $("result-count").textContent = loaded ? `${filteredGroups.length} produk` : "";
     $("clear-filters").hidden = !filterIds.some((id) => $(id).value);
@@ -565,7 +572,25 @@ $("clear-filters").addEventListener("click", () => {
     renderStock();
     $("query").focus();
 });
+document.addEventListener("click", (event) => {
+    if (optionsAnchor && !optionsAnchor.contains(event.target) && !$("product-options").contains(event.target)) {
+        closeProductOptions();
+    }
+});
+document.addEventListener("focusin", (event) => {
+    if (optionsAnchor && !optionsAnchor.contains(event.target) && !$("product-options").contains(event.target)) {
+        closeProductOptions();
+    }
+});
+document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && optionsAnchor) {
+        event.preventDefault();
+        closeProductOptions(true);
+    }
+});
+window.addEventListener("scroll", () => closeProductOptions(), {passive: true});
 window.addEventListener("resize", () => {
+    closeProductOptions();
     if (activeView === "stock") {
         const activePage = $("stock-list").querySelector(".is-current");
         if (activePage) $("stock-list").scrollLeft = pageOffset(activePage);
