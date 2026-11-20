@@ -136,7 +136,7 @@ h1 { margin: 0; font-size: clamp(1.75rem, 3.15vw, 2.45rem); line-height: 1.08; f
 .summary-label { color: var(--muted); font-size: .73rem; font-weight: 650; }
 .summary-price {
     margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    font-size: clamp(1.04rem, 1.8vw, 1.36rem); font-weight: 800; letter-spacing: -.052em;
+    font-size: clamp(.92rem, 1.4vw, 1.1rem); font-weight: 700; letter-spacing: -.025em;
 }
 .summary-heading, .summary-details { display: flex; justify-content: space-between; align-items: center; gap: .32rem; }
 .options-toggle {
@@ -210,7 +210,7 @@ textarea { display: block; width: 100%; margin: .6rem 0; padding: .65rem; backgr
     .card-main { padding: .58rem .51rem .5rem; }
     .card-summary { padding: .41rem .51rem; }
     .view-header { margin-bottom: .72rem; }
-    .summary-price { font-size: 1rem; }
+    .summary-price { font-size: .9rem; }
     .card-summary .pill { font-size: .71rem; padding: .13rem .32rem; gap: .22rem; }
     .carousel-controls .button { font-size: .74rem; }
     #carousel-position { font-size: .75rem; }
