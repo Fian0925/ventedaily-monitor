@@ -11,10 +11,14 @@ let products = [];
 let watchlist = new Map();
 const selection = new Set();
 const selectedVariants = new Map();
-const CARD_BATCH = 12;
+const PAGE_SIZE = 12;
 const filterIds = ["query", "category", "color", "size", "status"];
 let filteredGroups = [];
-let carouselIndex = 0;
+let currentPage = 0;
+let scrollTimer;
+const resizeActivePage = typeof ResizeObserver === "function"
+    ? new ResizeObserver(() => syncCarouselHeight())
+    : null;
 let loaded = false;
 let activeView = "stock";
 let feedbackTimer;
@@ -36,6 +40,17 @@ const examples = [
     ["Alea", "Oneset Motif", "Sage", "L", "Habis", "Rp 119.000"],
     ["Alea", "Oneset Motif", "Cream", "M", "Aman", "Rp 125.000"],
     ["Box Vente", "Box", "Mint", "ALL SIZE", "Aman", "Rp 35.000"],
+    ["Dara", "Tunik Brukat", "Lavender", "M", "Aman", "Rp 135.000"],
+    ["Elina", "Gamis Motif", "Cream", "L", "Ready", "Rp 189.000"],
+    ["Farah", "Oneset Rok", "Navy", "L", "Aman", "Rp 165.000"],
+    ["Gisella", "Tunik Motif", "Navy", "XL", "Habis", "Rp 139.000"],
+    ["Hana", "Tunik Polos", "Sage", "M", "Aman", "Rp 115.000"],
+    ["Jelita", "Gamis Motif", "Dusty Pink", "L", "Ready", "Rp 178.000"],
+    ["Laras", "Oneset Motif", "Black", "M", "Aman", "Rp 159.000"],
+    ["Maira", "Couple", "Mocha", "L", "Ready", "Rp 179.000"],
+    ["Rania", "Tunik Brukat", "Cream", "XL", "Aman", "Rp 148.000"],
+    ["Safira", "Gamis Motif", "Navy", "L", "Habis", "Rp 199.000"],
+    ["Zahra", "Tunik Motif", "Mauve", "M", "Aman", "Rp 132.000"],
 ].map(([name, category, color, size, stock, price]) => ({id: `${name} ${color} SIZE ${size}`, name, category, color, size, stock, price}));
 
 function node(tag, className, text) {
@@ -84,7 +99,7 @@ function changeView(view) {
         if (id === view) button.setAttribute("aria-current", "page");
         else button.removeAttribute("aria-current");
     }
-    if (view === "stock") moveCarousel(carouselIndex);
+    if (view === "stock") renderPage(currentPage);
     if (window.scrollY > 160) $(view).scrollIntoView({block: "start"});
 }
 
@@ -216,8 +231,15 @@ function productCard(group) {
         if (!groupedColors.has(key)) groupedColors.set(key, []);
         groupedColors.get(key).push(product);
     }
-    colors.field.hidden = groupedColors.size === 1 && groupedColors.has("");
+    const singleVariant = group.variants.length === 1;
+    colors.field.hidden = singleVariant || (groupedColors.size === 1 && groupedColors.has(""));
+    sizes.field.hidden = singleVariant;
     main.append(title, colors.field, sizes.field);
+    if (singleVariant) {
+        const [product] = group.variants;
+        const subtitle = [product.color, formatSize(product.size)].filter(Boolean).join(" · ");
+        main.append(node("p", "single-variant", subtitle));
+    }
 
     const summary = node("div", "card-summary");
     const details = node("div", "summary-details");
@@ -225,7 +247,7 @@ function productCard(group) {
     const price = node("p", "summary-price");
     const stock = node("div");
     const actions = node("div", "actions");
-    details.append(node("span", "summary-label", "Harga varian"), price, stock);
+    details.append(node("span", "summary-label", "Harga"), price, stock);
     summary.append(details, actions);
 
     const previous = group.variants.find(({id}) => id === selectedVariants.get(group.key));
@@ -298,77 +320,76 @@ function groupMatchingProducts() {
     return [...groups.values()].sort((left, right) => left.name.localeCompare(right.name, "id", {numeric: true}));
 }
 
-function appendCards(count) {
+function pageCount() {
+    return Math.ceil(filteredGroups.length / PAGE_SIZE);
+}
+
+function pageOffset(page) {
+    return page.offsetLeft - $("stock-list").firstElementChild.offsetLeft;
+}
+
+function syncCarouselHeight(page = $("stock-list").querySelector(".is-current")) {
+    if (page?.offsetHeight) $("stock-list").style.height = `${page.offsetHeight}px`;
+}
+
+function renderPage(index) {
+    clearTimeout(scrollTimer);
+    const total = pageCount();
+    if (!total) return;
+
+    currentPage = Math.max(0, Math.min(index, total - 1));
     const carousel = $("stock-list");
-    const start = carousel.children.length;
-    const end = Math.min(filteredGroups.length, Math.max(start, count));
-    for (const group of filteredGroups.slice(start, end)) carousel.append(productCard(group));
-}
-
-function cardOffset(index) {
-    const cards = $("stock-list").children;
-    return cards[index].offsetLeft - cards[0].offsetLeft;
-}
-
-function visibleCardCount() {
-    const count = Number(getComputedStyle($("stock-list")).getPropertyValue("--complete-cards")) || 1;
-    return Math.min(filteredGroups.length, count);
-}
-
-function lastCarouselStart(count = visibleCardCount()) {
-    return Math.max(0, filteredGroups.length - count);
-}
-
-function showCarouselPosition(count) {
-    const first = carouselIndex + 1;
-    const last = carouselIndex + count;
-    const range = first === last ? first : `${first}–${last}`;
-    $("carousel-controls").hidden = filteredGroups.length <= count;
-    $("previous").disabled = carouselIndex === 0;
-    $("next").disabled = carouselIndex >= lastCarouselStart(count);
-    $("carousel-position").textContent = `${range} dari ${filteredGroups.length}`;
-    for (const [index, card] of Array.from($("stock-list").children).entries()) {
-        card.toggleAttribute("inert", index < carouselIndex || index >= last);
+    const pages = [];
+    for (let number = Math.max(0, currentPage - 1); number <= Math.min(total - 1, currentPage + 1); number++) {
+        const page = node("div", "product-page");
+        const active = number === currentPage;
+        page.dataset.page = number;
+        page.classList.toggle("is-current", active);
+        page.toggleAttribute("inert", !active);
+        const start = number * PAGE_SIZE;
+        page.append(...filteredGroups.slice(start, start + PAGE_SIZE).map(productCard));
+        pages.push(page);
     }
-}
 
-function moveCarousel(index) {
-    if (!filteredGroups.length) return;
-    const count = visibleCardCount();
-    carouselIndex = Math.max(0, Math.min(index, lastCarouselStart(count)));
-    if (carouselIndex + count + 1 >= $("stock-list").children.length) appendCards(carouselIndex + CARD_BATCH);
-    $("stock-list").scrollLeft = cardOffset(carouselIndex);
-    showCarouselPosition(count);
+    resizeActivePage?.disconnect();
+    carousel.replaceChildren(...pages);
+    const activePage = carousel.querySelector(".is-current");
+    carousel.scrollLeft = pageOffset(activePage);
+    syncCarouselHeight(activePage);
+    resizeActivePage?.observe(activePage);
+    $("carousel-controls").hidden = total <= 1;
+    $("previous").disabled = currentPage === 0;
+    $("next").disabled = currentPage >= total - 1;
+    $("carousel-position").textContent = `${currentPage + 1} / ${total}`;
+    $("carousel-position").setAttribute("aria-label", `Halaman ${currentPage + 1} dari ${total}`);
 }
 
 function onCarouselScroll() {
-    const carousel = $("stock-list");
-    if (carousel.children.length < 2) return;
-    const spacing = cardOffset(1);
-    if (spacing <= 0) return;
-    const count = visibleCardCount();
-    const index = Math.max(0, Math.min(lastCarouselStart(count), Math.round(carousel.scrollLeft / spacing)));
-    if (index === carouselIndex) return;
-    carouselIndex = index;
-    if (index + count + 1 >= carousel.children.length) appendCards(index + CARD_BATCH);
-    showCarouselPosition(count);
+    clearTimeout(scrollTimer);
+    scrollTimer = setTimeout(() => {
+        const carousel = $("stock-list");
+        if (carousel.children.length < 2 || !carousel.clientWidth) return;
+        const closest = Array.from(carousel.children).reduce((nearest, page) => (
+            Math.abs(pageOffset(page) - carousel.scrollLeft) < Math.abs(pageOffset(nearest) - carousel.scrollLeft) ? page : nearest
+        ));
+        if (Number(closest.dataset.page) !== currentPage) renderPage(Number(closest.dataset.page));
+    }, 100);
 }
 
 function renderStock() {
-    const carousel = $("stock-list");
     filteredGroups = groupMatchingProducts();
-    carousel.classList.toggle("is-single", filteredGroups.length < 2);
     $("result-count").textContent = loaded ? `${filteredGroups.length} produk` : "";
     $("clear-filters").hidden = !filterIds.some((id) => $(id).value);
     if (!filteredGroups.length) {
-        carouselIndex = 0;
+        currentPage = 0;
+        clearTimeout(scrollTimer);
+        resizeActivePage?.disconnect();
+        $("stock-list").style.height = "";
         $("carousel-controls").hidden = true;
         empty("stock-list", loaded ? "Tidak ada produk yang cocok." : "Stok belum dimuat.");
         return;
     }
-    carousel.replaceChildren();
-    appendCards(Math.min(filteredGroups.length, carouselIndex + CARD_BATCH));
-    moveCarousel(carouselIndex);
+    renderPage(currentPage);
 }
 
 function renderLists() {
@@ -455,7 +476,7 @@ async function load() {
     try {
         const data = demo ? {products: examples, watchlist: []} : await api("dashboard");
         setProducts(data.products);
-        carouselIndex = 0;
+        currentPage = 0;
         watchlist = new Map(data.watchlist.map((item) => [item.product_name, item]));
         loaded = true;
         $("catalog-preview").hidden = true;
@@ -517,27 +538,31 @@ for (const button of document.querySelectorAll("[data-view]")) {
 }
 for (const id of filterIds) {
     $(id).addEventListener(id === "query" ? "input" : "change", () => {
-        carouselIndex = 0;
+        currentPage = 0;
         renderStock();
     });
 }
 $("clear-filters").addEventListener("click", () => {
     for (const id of filterIds) $(id).value = "";
-    carouselIndex = 0;
+    currentPage = 0;
     renderStock();
     $("query").focus();
 });
 window.addEventListener("resize", () => {
-    if (activeView === "stock") moveCarousel(carouselIndex);
+    if (activeView === "stock") {
+        const activePage = $("stock-list").querySelector(".is-current");
+        if (activePage) $("stock-list").scrollLeft = pageOffset(activePage);
+        syncCarouselHeight(activePage);
+    }
 });
 $("stock-list").addEventListener("scroll", onCarouselScroll, {passive: true});
 $("stock-list").addEventListener("keydown", (event) => {
     if (event.target !== $("stock-list") || !["ArrowLeft", "ArrowRight"].includes(event.key)) return;
     event.preventDefault();
-    moveCarousel(carouselIndex + (event.key === "ArrowRight" ? 1 : -1));
+    renderPage(currentPage + (event.key === "ArrowRight" ? 1 : -1));
 });
-$("previous").addEventListener("click", () => moveCarousel(carouselIndex - 1));
-$("next").addEventListener("click", () => moveCarousel(carouselIndex + 1));
+$("previous").addEventListener("click", () => renderPage(currentPage - 1));
+$("next").addEventListener("click", () => renderPage(currentPage + 1));
 $("refresh").addEventListener("click", load);
 $("make-catalog").addEventListener("click", makeCatalog);
 $("copy").addEventListener("click", copyCatalog);
