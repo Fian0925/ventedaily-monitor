@@ -73,6 +73,8 @@ h1 { margin: 0; font-size: clamp(1.75rem, 3.15vw, 2.45rem); line-height: 1.08; f
     align-items: end; gap: .42rem .65rem; padding: .7rem .85rem;
     border: 1px solid var(--line); border-radius: .8rem; background: var(--surface);
 }
+.filter-fields { display: contents; }
+.filter-toggle { display: none; }
 .field { display: grid; gap: .32rem; min-width: 0; font-size: .84rem; font-weight: 650; }
 .field-control {
     position: relative; display: flex; align-items: center; min-width: 0; min-height: 2.5rem;
@@ -159,13 +161,18 @@ h1 { margin: 0; font-size: clamp(1.75rem, 3.15vw, 2.45rem); line-height: 1.08; f
 .options-toggle:hover, .options-toggle[aria-expanded="true"] { border-color: var(--line); background: var(--surface); }
 .is-search .product-page { display: grid; grid-template-columns: minmax(0, 1fr); gap: .43rem; }
 .is-search .product-card {
-    display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(10rem, 1fr) minmax(9rem, .7fr);
-    align-items: start; gap: .42rem .7rem; padding: .48rem .59rem;
+    display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(12rem, 1.15fr) auto;
+    align-items: start; gap: .45rem .85rem; padding: .64rem .76rem;
 }
-.is-search .card-main { display: contents; }
+.is-search .card-main, .is-search .card-summary { display: contents; }
+.is-search .summary-heading { display: none; }
+.is-search .summary-details { justify-self: end; justify-content: flex-end; padding-top: .01rem; gap: .22rem; }
+.is-search .summary-price { font-size: .91rem; }
+.is-search .options-toggle { padding-inline: .22rem; }
+.is-search .options-toggle::before { display: none; }
 .is-search .card-title { margin: 0; min-width: 0; }
 .is-search .product-card h2 { height: auto; font-size: clamp(.97rem, 1.52vw, 1.15rem); }
-.is-search .card-summary { margin: 0; padding: .35rem .55rem; border: 0; border-radius: .43rem; }
+.is-search .variant-line { grid-template-columns: minmax(4.6rem, 29%) minmax(0, 1fr); align-items: center; }
 .product-options {
     position: fixed; z-index: 4; display: grid; gap: .22rem; min-width: 8.25rem;
     border: 1px solid var(--line); border-radius: .55rem; padding: .27rem;
@@ -242,14 +249,34 @@ textarea { display: block; width: 100%; margin: .6rem 0; padding: .65rem; backgr
 }
 
 @media (max-width: 660px) {
+    .filters.is-search {
+        grid-template-columns: minmax(0, 1fr) auto; gap: .42rem;
+        padding: 0; border: 0; background: transparent;
+    }
+    .filters.is-search .field-search { grid-column: 1; }
+    .filters.is-search .search-label {
+        position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%);
+    }
+    .filters.is-search .search-field { background: var(--surface); }
+    .filters.is-search .filter-toggle {
+        display: inline-flex; align-items: center; justify-content: center;
+        min-height: 2.5rem; padding: .34rem .69rem;
+    }
+    .filters.is-search .filter-fields {
+        grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: .37rem .52rem; padding: .52rem; background: var(--surface);
+        border: 1px solid var(--line); border-radius: .55rem;
+    }
+    .filters.is-search:not(.filters-open) .filter-fields { display: none; }
+    .has-query .result-bar { min-height: 2.3rem; margin-block: .1rem; }
+    .has-query .stock-legend { margin-bottom: .36rem; }
+
     .is-search .product-card {
-        grid-template-columns: minmax(0, 1fr) minmax(7.5rem, .85fr);
-        gap: .42rem .52rem; padding: .46rem;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: .4rem .45rem; padding: .59rem .64rem;
     }
     .is-search .card-title { grid-column: 1; grid-row: 1; }
-    .is-search .card-summary { grid-column: 2; grid-row: 1; }
-    .is-search .options-toggle { padding-inline: .22rem; }
-    .is-search .options-toggle::before { display: none; }
-    .is-search .variant-fields { grid-column: 1 / -1; }
-    .is-search .variant-line { grid-template-columns: minmax(4rem, .65fr) minmax(0, 1.35fr); }
+    .is-search .summary-details { grid-column: 2; grid-row: 1; }
+    .is-search .variant-fields { grid-column: 1 / -1; border-top: 1px solid var(--line); padding-top: .43rem; }
+    .is-search .variant-line { gap: .35rem; }
 }

@@ -9,9 +9,9 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='mini-app/dashboard.css', v=9) }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='mini-app/dashboard.css', v=10) }}">
     <script src="https://telegram.org/js/telegram-web-app.js?59" defer></script>
-    <script src="{{ url_for('static', filename='mini-app/dashboard.js', v=9) }}" defer></script>
+    <script src="{{ url_for('static', filename='mini-app/dashboard.js', v=10) }}" defer></script>
 </head>
 <body>
     <header class="app-nav">
@@ -42,49 +42,52 @@
                 <button id="refresh" class="button secondary" type="button" hidden>Muat ulang</button>
             </div>
 
-            <div class="filters" role="group" aria-label="Filter stok">
+            <div id="stock-filters" class="filters" role="group" aria-label="Filter stok">
                 <label class="field field-search">
-                    <span>Cari produk</span>
+                    <span class="search-label">Cari produk</span>
                     <span class="field-control search-field">
                         <span class="nav-icon icon-search" aria-hidden="true"></span>
                         <input id="query" type="search" placeholder="Nama, warna, atau ukuran" autocomplete="off">
                     </span>
                 </label>
-                <label class="field">
-                    <span>Jenis produk</span>
-                    <span class="field-control select-field">
-                        <select id="category"><option value="">Semua jenis</option></select>
-                    </span>
-                </label>
-                <label class="field">
-                    <span>Status stok</span>
-                    <span class="field-control select-field">
-                        <select id="status">
-                            <option value="">Semua</option>
-                            <option value="available">Tersedia</option>
-                            <option value="aman">Aman</option>
-                            <option value="ready">Ready</option>
-                            <option value="habis">Habis</option>
-                        </select>
-                    </span>
-                </label>
-                <details class="extra-filters">
-                    <summary>Warna dan ukuran</summary>
-                    <div class="extra-fields">
-                        <label class="field">
-                            <span>Warna</span>
-                            <span class="field-control select-field">
-                                <select id="color"><option value="">Semua warna</option></select>
-                            </span>
-                        </label>
-                        <label class="field">
-                            <span>Ukuran</span>
-                            <span class="field-control select-field">
-                                <select id="size"><option value="">Semua ukuran</option></select>
-                            </span>
-                        </label>
-                    </div>
-                </details>
+                <button id="toggle-filters" class="button secondary filter-toggle" type="button" aria-controls="filter-fields" aria-expanded="false">Filter</button>
+                <div id="filter-fields" class="filter-fields">
+                    <label class="field">
+                        <span>Jenis produk</span>
+                        <span class="field-control select-field">
+                            <select id="category"><option value="">Semua jenis</option></select>
+                        </span>
+                    </label>
+                    <label class="field">
+                        <span>Status stok</span>
+                        <span class="field-control select-field">
+                            <select id="status">
+                                <option value="">Semua</option>
+                                <option value="available">Tersedia</option>
+                                <option value="aman">Aman</option>
+                                <option value="ready">Ready</option>
+                                <option value="habis">Habis</option>
+                            </select>
+                        </span>
+                    </label>
+                    <details class="extra-filters">
+                        <summary>Warna dan ukuran</summary>
+                        <div class="extra-fields">
+                            <label class="field">
+                                <span>Warna</span>
+                                <span class="field-control select-field">
+                                    <select id="color"><option value="">Semua warna</option></select>
+                                </span>
+                            </label>
+                            <label class="field">
+                                <span>Ukuran</span>
+                                <span class="field-control select-field">
+                                    <select id="size"><option value="">Semua ukuran</option></select>
+                                </span>
+                            </label>
+                        </div>
+                    </details>
+                </div>
             </div>
 
             <div class="result-bar">

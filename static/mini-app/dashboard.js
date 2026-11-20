@@ -13,7 +13,7 @@ const selection = new Set();
 const selectedVariants = new Map();
 let optionsAnchor = null;
 const PAGE_SIZE = 12;
-const filterIds = ["query", "category", "color", "size", "status"];
+const filterIds = ["category", "color", "size", "status"];
 let filteredGroups = [];
 let currentPage = 0;
 let scrollTimer;
@@ -440,13 +440,19 @@ function renderStock() {
     const search = $("query").value.trim();
     const query = searchText(search);
     const carousel = $("stock-list");
+    const filters = $("stock-filters");
     carousel.classList.toggle("is-search", Boolean(query));
+    filters.classList.toggle("is-search", Boolean(query));
+    $("stock").classList.toggle("has-query", Boolean(query));
+    if (!query) setFiltersOpen(false);
     filteredGroups = groupMatchingProducts(query);
 
     const count = filteredGroups.length;
     $("stock-legend").hidden = !count;
     $("result-count").textContent = loaded ? `${count} produk${query ? " ditemukan" : ""}` : "";
-    $("clear-filters").hidden = !filterIds.some((id) => $(id).value);
+    const activeFilters = filterIds.filter((id) => $(id).value).length;
+    $("toggle-filters").textContent = activeFilters ? `Filter (${activeFilters})` : "Filter";
+    $("clear-filters").hidden = activeFilters === 0;
     if (!filteredGroups.length) {
         currentPage = 0;
         clearTimeout(scrollTimer);
@@ -604,7 +610,16 @@ async function copyCatalog() {
 for (const button of document.querySelectorAll("[data-view]")) {
     button.addEventListener("click", () => changeView(button.dataset.view));
 }
-for (const id of filterIds) {
+function setFiltersOpen(open) {
+    $("stock-filters").classList.toggle("filters-open", open);
+    $("toggle-filters").setAttribute("aria-expanded", String(open));
+}
+
+$("toggle-filters").addEventListener("click", () => {
+    setFiltersOpen($("toggle-filters").getAttribute("aria-expanded") !== "true");
+});
+
+for (const id of ["query", ...filterIds]) {
     $(id).addEventListener(id === "query" ? "input" : "change", () => {
         currentPage = 0;
         renderStock();
