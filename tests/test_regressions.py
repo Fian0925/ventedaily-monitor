@@ -85,6 +85,27 @@ class MonitorRegressionTests(unittest.TestCase):
         new = {"Produk": {"stock": "Aman", "harga": "Rp 100.000"}}
         self.assertEqual(monitor.compare_data(old, new), ([], 0, []))
 
+    def test_snapshot_excludes_defect_status_and_defect_price_sources(self):
+        name = "(Couple) Produk Blue SIZE L"
+        reference = "(Couple) Produk Pink SIZE L"
+        catalog = [
+            {"name": name, "status": "Ready", "selling_price": 150000},
+            {"name": reference, "status": "Aman", "selling_price": 150000},
+            {"name": "(Couple) Produk Blue SIZE M", "status": "Defect", "selling_price": 110000},
+            {"name": "(Couple) [Defect] Produk Blue SIZE XL", "status": "Ready", "selling_price": 110000},
+        ]
+        stock = [
+            {"product_name": "Produk", "color": "Blue", "reseller_price": 100000},
+            {"product_name": "[Defect] Produk", "color": "Blue", "reseller_price": 120000},
+            {"product_name": "Produk", "color": "Pink", "reseller_price": 110000, "status": "Defect"},
+        ]
+        with patch.object(monitor, "_fetch_paginated", side_effect=[catalog, stock]):
+            snapshot = monitor.fetch_all()
+        self.assertEqual(set(snapshot), {name, reference})
+        self.assertEqual(snapshot[name]["harga"], "Rp 100.000")
+        self.assertTrue(snapshot[reference]["catalog_price"])
+        self.assertEqual(snapshot[reference]["harga"], "Rp 150.000")
+
     def test_all_events_are_saved_before_broadcast(self):
         old = {f"Produk {i}": {"stock": "Habis", "harga": "Rp 10.000"} for i in range(101)}
         new = {name: dict(item, stock="Aman") for name, item in old.items()}

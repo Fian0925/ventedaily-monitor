@@ -4,6 +4,7 @@ import json
 import re
 import time
 from decimal import Decimal
+from functools import cache
 from urllib.parse import parse_qsl, urlsplit
 
 import requests
@@ -126,7 +127,13 @@ def snapshot_products():
     row = database.read_snapshot()
     if not row or not row["data"]:
         return {}, None
-    return {(item.get("nama") or key): item for key, item in row["data"].items()}, row["updated_at"]
+    products = {}
+    for key, item in row["data"].items():
+        name = item.get("nama") or key
+        if not (commands.is_defect_variant(name, item.get("stock") or item.get("status"))
+                or commands.is_defect_variant(item.get("product_name"))):
+            products[name] = item
+    return products, row["updated_at"]
 
 
 def product_details(name, item):
@@ -140,28 +147,46 @@ def product_details(name, item):
         size = size_suffix.group(0).strip().upper()
         base = base[:size_suffix.start()]
     product_name, color = commands.split_product_color(base, CATALOG_COLORS)
+    cost = parse_rupiah(item.get("harga"))
     return {
         "id": name,
         "name": item.get("product_name") or product_name,
         "color": item.get("color") or color,
         "category": category,
         "size": size if size != "-" else "Semua ukuran",
-        "stock": item.get("stock", ""),
+        "stock": item.get("stock") or "",
         "price": item.get("harga", ""),
+        "price_source": ("catalog" if item.get("catalog_price") else "reseller") if cost else None,
     }
 
 
 @mini_app.get("/api/dashboard")
 def dashboard_data():
     products, updated_at = snapshot_products()
+    pricing = saved_pricing(g.settings)
+
+    @cache
+    def quote(cost):
+        return estimate_selling_price(cost, pricing)
+
+    variants = {}
+    for name in sorted(products, key=str.casefold):
+        product = product_details(name, products[name])
+        product["selling_price"] = quote(product["price"]) if product["price_source"] == "reseller" else None
+        variants[name] = product
     watched = database.call_rpc("get_mini_watchlist", {"p_chat_id": g.user_id})
-    for row in watched:
-        name = row["product_name"]
-        row["product"] = product_details(name, products.get(name, {}))
     return {
         "updated_at": updated_at,
-        "watchlist": watched,
-        "products": [product_details(name, products[name]) for name in sorted(products, key=str.casefold)],
+        "watchlist": [{**row, "product": variants[row["product_name"]]}
+                      for row in watched if row["product_name"] in variants],
+        "products": list(variants.values()),
+        "pricing": {
+            "marketplace": calculator.MARKETPLACES[pricing["marketplace"]]["name"],
+            "admin_fee": str(pricing["admin_fee"]),
+            "markup_type": pricing["markup_type"],
+            "markup_value": str(pricing["markup_value"]),
+            "packing_cost": config.BIAYA_TAMBAHAN,
+        } if pricing else None,
     }
 
 
@@ -196,35 +221,34 @@ def create_catalog():
     unavailable = []
     for name in dict.fromkeys(names):
         item = products.get(name)
-        if item and item.get("stock", "").lower() in ("aman", "ready"):
+        if item and (item.get("stock") or "").lower() in ("aman", "ready"):
             selected.append((name, item))
         else:
             unavailable.append(name)
     if unavailable:
-        return {"error": "Sebagian varian sudah habis. Muat ulang stok sebelum membuat katalog."}, 409
+        return {"error": "Sebagian varian sudah tidak tersedia. Muat ulang stok sebelum membuat katalog."}, 409
 
-    markup = float(g.settings.get("markup_value") or 0)
-    fee = float(g.settings.get("admin_fee") or 0)
-    markup_type = g.settings.get("markup_type", "percent")
+    pricing = saved_pricing(g.settings)
     lines = ["KATALOG PRODUK TERSEDIA"]
     has_missing_price = False
-    for (name, price), colors in sorted(commands._group_products_by_variant(selected).items()):
-        if calculator.parse_price(price) > 0:
-            if markup > 0:
-                result = calculator.calculate_price(price, markup, markup_type, fee, config.BIAYA_TAMBAHAN)
-                price_label = calculator.format_price(result["harga_jual"])
-            else:
-                price_label = calculator.format_price(calculator.parse_price(price) + config.BIAYA_TAMBAHAN)
-        else:
-            price_label = "Tanya harga"
+    priced = []
+    for name, item in selected:
+        price = None if item.get("catalog_price") else estimate_selling_price(item.get("harga"), pricing)
+        if price is None:
             has_missing_price = True
-        lines.extend(("", f"{name} — {price_label}"))
+        priced.append((name, {**item, "harga": calculator.format_price(price) if price is not None else "Tanya harga"}))
+    for (name, price), colors in sorted(commands._group_products_by_variant(priced).items()):
+        lines.extend(("", f"{name} — {price}"))
         for color, sizes in sorted(colors.items()):
             prefix = f"{color}: " if color != "-" else ""
             labels = [commands._format_size_label(size) for size in commands._ordered_sizes(sizes) if size != "-"]
             lines.append(f"• {prefix}{', '.join(labels) or 'Tersedia'}")
     lines.extend(("", "Chat untuk cek ketersediaan dan pesan."))
-    return {"text": "\n".join(lines), "uses_cost": markup <= 0, "missing_price": has_missing_price}
+    return {
+        "text": "\n".join(lines),
+        "zero_profit": pricing is not None and pricing["markup_value"] == 0,
+        "missing_price": has_missing_price,
+    }
 
 
 def pricing_settings(settings):
@@ -285,6 +309,21 @@ def validate_pricing(body):
     else:
         raise ValueError("Pilih persen atau rupiah untuk target untung.")
     return {"marketplace": marketplace, "admin_fee": fee, "markup_type": kind, "markup_value": markup}
+
+
+def saved_pricing(settings):
+    try:
+        return validate_pricing(pricing_settings(settings))
+    except ValueError:
+        return None
+
+
+def estimate_selling_price(cost, pricing):
+    if pricing is None or not parse_rupiah(cost):
+        return None
+    return calculator.calculate_price(
+        cost, pricing["markup_value"], pricing["markup_type"], pricing["admin_fee"], config.BIAYA_TAMBAHAN,
+    )["harga_jual"]
 
 
 @mini_app.route("/api/pricing/settings", methods=["GET", "PUT"])

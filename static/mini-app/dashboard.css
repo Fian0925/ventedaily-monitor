@@ -148,18 +148,26 @@ h1 { margin: 0; font-size: clamp(1.75rem, 3.15vw, 2.45rem); line-height: 1.08; f
 }
 .size-chip[aria-pressed="true"] { border-color: currentColor; }
 .size-chip:hover { filter: brightness(.96); }
-.stock-legend { display: flex; flex-wrap: wrap; gap: .3rem; list-style: none; margin: 0 0 .45rem; padding: 0; }
+.stock-key { display: flex; align-items: center; justify-content: space-between; gap: .35rem; margin-bottom: .45rem; }
+.stock-key .clear-filters { margin-left: auto; }
+.stock-legend { display: flex; flex-wrap: wrap; gap: .3rem; list-style: none; margin: 0; padding: 0; }
 .stock-legend .pill { padding: .12rem .4rem; font-size: .72rem; }
+.price-guide { margin-bottom: .5rem; padding: .59rem .68rem; background: var(--surface); border: 1px solid var(--line); border-radius: .55rem; }
+.price-guide p { margin: 0; color: var(--muted); font-size: .81rem; }
+.price-guide p + p { margin-top: .32rem; }
+#price-settings-line { color: var(--primary); font-weight: 700; }
 .card-summary {
-    min-width: 0; display: grid; gap: .25rem; margin-top: auto;
+    min-width: 0; margin-top: auto;
     padding: .47rem .76rem; background: var(--tint); border-top: 1px solid var(--line);
 }
-.summary-label { color: var(--muted); font-size: .73rem; font-weight: 650; }
+.price-display { display: grid; gap: .06rem; min-width: 0; line-height: 1.22; }
+.summary-label { color: var(--muted); font-size: .7rem; font-weight: 650; }
+.price-origin { color: var(--muted); font-size: .67rem; white-space: nowrap; }
 .summary-price {
     margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     font-size: clamp(.92rem, 1.4vw, 1.1rem); font-weight: 700; letter-spacing: -.025em;
 }
-.summary-heading, .summary-details { display: flex; justify-content: space-between; align-items: center; gap: .32rem; }
+.summary-details { display: flex; justify-content: space-between; align-items: center; gap: .32rem; }
 .options-toggle {
     display: inline-flex; align-items: center; gap: .25rem; flex: 0 0 auto; min-height: 1.85rem;
     border: 1px solid transparent; border-radius: .38rem; padding: .14rem .35rem;
@@ -173,8 +181,8 @@ h1 { margin: 0; font-size: clamp(1.75rem, 3.15vw, 2.45rem); line-height: 1.08; f
     align-items: start; gap: .45rem .85rem; padding: .64rem .76rem;
 }
 .is-search .card-main, .is-search .card-summary { display: contents; }
-.is-search .summary-heading { display: none; }
 .is-search .summary-details { justify-self: end; justify-content: flex-end; padding-top: .01rem; gap: .22rem; }
+.is-search .price-display, .product > .price-display { text-align: right; }
 .is-search .summary-price { font-size: .91rem; }
 .is-search .options-toggle { padding-inline: .22rem; }
 .is-search .options-toggle::before { display: none; }
@@ -202,7 +210,6 @@ h1 { margin: 0; font-size: clamp(1.75rem, 3.15vw, 2.45rem); line-height: 1.08; f
 .pill.low, .size-chip.low { background: #fff1ba; color: #634407; }
 .pill.out, .size-chip.out { background: #fae3e0; color: #913533; }
 .size-chip.out, .stock-legend .pill.out { text-decoration: line-through; text-decoration-thickness: 1.4px; }
-.price { font-size: .94rem; font-weight: 700; white-space: nowrap; }
 .actions { display: flex; flex-wrap: wrap; align-items: center; gap: .38rem; }
 .product .actions { grid-column: 1 / -1; }
 .button { border: 1px solid transparent; border-radius: .5rem; padding: .47rem .68rem; min-height: 2.7rem; font-size: .85rem; font-weight: 700; white-space: nowrap; }
@@ -273,7 +280,6 @@ textarea { display: block; width: 100%; margin: .6rem 0; padding: .65rem; backgr
     .card-summary { padding: .41rem .51rem; }
     .view-header { margin-bottom: .72rem; }
     .summary-price { font-size: .9rem; }
-    .card-summary .pill { font-size: .71rem; padding: .13rem .32rem; gap: .22rem; }
     .carousel-controls .button { font-size: .74rem; }
     #carousel-position { font-size: .75rem; }
 }
@@ -303,7 +309,7 @@ textarea { display: block; width: 100%; margin: .6rem 0; padding: .65rem; backgr
     }
     .filters.is-search:not(.filters-open) .filter-fields { display: none; }
     .has-query .result-bar { min-height: 2.3rem; margin-block: .1rem; }
-    .has-query .stock-legend { margin-bottom: .36rem; }
+    .has-query .stock-key { margin-bottom: .36rem; }
 
     .is-search .product-card {
         grid-template-columns: minmax(0, 1fr) auto;

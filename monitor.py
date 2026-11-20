@@ -179,14 +179,14 @@ def fetch_all(previous_data=None):
     if stock_items:
         for s in stock_items:
             pn = s.get("product_name", "").strip()
-            # Hapus prefix defect
-            pn = pn.replace("[DEFECT]", "").replace("(Defect)", "").strip()
+            if commands.is_defect_variant(pn, s.get("status")):
+                continue
             color = s.get("color", "").strip()
             price_key = f"{pn.lower()} {color.lower()}".strip()
             if pn and color:
                 identity_lookup[price_key] = {"product_name": pn, "color": color}
             reseller = s.get("reseller_price", 0)
-            # Prioritaskan harga tertinggi (produk normal, bukan defect)
+            # Prioritaskan harga tertinggi antar varian normal yang cocok.
             if price_key not in price_lookup or reseller > price_lookup[price_key]:
                 price_lookup[price_key] = reseller
 
@@ -204,12 +204,7 @@ def fetch_all(previous_data=None):
         status = item.get("status", "").strip()
         selling_price = item.get("selling_price", 0)
 
-        if not nama:
-            continue
-
-        # Skip produk defect
-        nama_lower = nama.lower()
-        if '[defect]' in nama_lower or '(defect)' in nama_lower:
+        if not nama or commands.is_defect_variant(nama, status):
             continue
 
         if status not in ("Aman", "Ready", "Habis"):

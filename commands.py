@@ -177,6 +177,14 @@ def _group_products_by_variant(products):
     return groups
 
 
+def is_defect_variant(name, status=""):
+    return bool(
+        re.search(r"\[\s*defect\s*\]|\(\s*defect\s*\)", name or "", re.IGNORECASE)
+        or re.match(r"^\s*defect\b", name or "", re.IGNORECASE)
+        or re.match(r"^[\s(\[]*defect\b", status or "", re.IGNORECASE)
+    )
+
+
 def _parse_day_bucket(dt_str):
     """Ubah ISO timestamp ke (iso_date_sort_key, label_tanggal, jam_wib)."""
     try:

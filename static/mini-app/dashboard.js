@@ -27,6 +27,8 @@ let activeView = "stock";
 let feedbackTimer;
 let marketplaces;
 let loadingPricing = false;
+let stockLoad = 0;
+let pricingIsCurrent = false;
 
 const examples = [
     ["Sasmita", "Family", "Navy", "L", "Aman", "Rp 149.000"],
@@ -173,6 +175,23 @@ function stockPill(product) {
     return node("span", `pill ${style}`, label);
 }
 
+function showProductPrice(element, product) {
+    const origin = product.price_source;
+    const hasEstimate = pricingIsCurrent && Number.isFinite(product.selling_price);
+    let label = "Harga belum tersedia";
+    let detail = "";
+    if (demo) label = "Harga contoh";
+    else if (hasEstimate) {
+        label = "Harga jual";
+        detail = `Modal Vente ${product.price}`;
+    } else if (origin === "reseller") label = "Modal Vente";
+    else if (origin === "catalog") label = "Katalog Vente";
+
+    const price = hasEstimate ? rupiah.format(product.selling_price) : (origin || demo) ? product.price : "—";
+    element.replaceChildren(node("span", "summary-label", label), node("span", "summary-price", price));
+    if (detail) element.append(node("span", "price-origin", detail));
+}
+
 function productRow(product, context, lastRestock = null) {
     const row = node("article", "product");
     const info = node("div");
@@ -187,7 +206,9 @@ function productRow(product, context, lastRestock = null) {
     info.append(meta);
     const actions = node("div", "actions");
     actions.append(...variantActionButtons(product, context));
-    row.append(info, node("div", "price", product.price || "—"), actions);
+    const price = node("div", "price-display");
+    showProductPrice(price, product);
+    row.append(info, price, actions);
     return row;
 }
 
@@ -209,7 +230,7 @@ function toggleProductOptions(anchor, product) {
 
     const menu = $("product-options");
     menu.replaceChildren(...variantActionButtons(product, "stock"));
-    if (!demo && product.price && /[0-9]/.test(product.price)) {
+    if (product.price_source === "reseller") {
         menu.append(action("Hitung harga jual", () => openProductCalculator(product)));
     }
     optionsAnchor = anchor;
@@ -273,12 +294,8 @@ function productCard(group) {
     title.append(name, meta);
 
     const summary = node("div", "card-summary");
-    const heading = node("div", "summary-heading");
-    const status = node("div", "summary-status");
-    status.setAttribute("aria-live", "polite");
-    heading.append(node("span", "summary-label", "Harga"), status);
     const details = node("div", "summary-details");
-    const price = node("p", "summary-price");
+    const price = node("div", "price-display");
     price.setAttribute("aria-live", "polite");
     const options = node("button", "options-toggle", "Opsi");
     options.type = "button";
@@ -286,10 +303,13 @@ function productCard(group) {
     options.setAttribute("aria-controls", "product-options");
     options.setAttribute("aria-expanded", "false");
     details.append(price, options);
-    summary.append(heading, details);
+    summary.append(details);
 
     const previous = group.variants.find(({id}) => id === selectedVariants.get(group.key));
-    let selected = previous || group.variants.find(available) || group.variants[0];
+    let selected = previous
+        || group.variants.find((product) => available(product) && Number.isFinite(product.selling_price))
+        || group.variants.find(available)
+        || group.variants[0];
     const {matrix, buttons} = variantMatrix(group.variants, choose);
     main.append(title, matrix);
 
@@ -297,9 +317,7 @@ function productCard(group) {
         for (const [id, button] of buttons) {
             button.setAttribute("aria-pressed", String(id === selected.id));
         }
-        price.textContent = selected.price || "—";
-        price.title = selected.price || "Harga belum tersedia";
-        status.replaceChildren(stockPill(selected));
+        showProductPrice(price, selected);
     }
 
     function choose(product) {
@@ -552,15 +570,31 @@ function setProducts(items) {
     }
 }
 
-async function load() {
+function showPriceGuide(pricing) {
+    $("show-price-guide").hidden = demo || !loaded;
+    let message = "Periksa setelan toko di Pengaturan untuk menampilkan harga jual otomatis.";
+    if (pricing) {
+        const target = pricing.markup_type === "nominal"
+            ? rupiah.format(Number(pricing.markup_value)) : `${pricing.markup_value.replace(".", ",")}%`;
+        const fee = pricing.admin_fee.replace(".", ",");
+        message = `${pricing.marketplace} · Admin ${fee}% · Target untung ${target} · Packing ${rupiah.format(pricing.packing_cost)}`;
+    }
+    $("price-settings-line").textContent = message;
+}
+
+async function load({resetPage = true} = {}) {
+    const request = ++stockLoad;
     notice("");
     $("refresh").disabled = true;
     try {
         const data = demo ? {products: examples, watchlist: []} : await api("dashboard");
+        if (request !== stockLoad) return false;
         setProducts(data.products);
-        currentPage = 0;
+        if (resetPage) currentPage = 0;
         watchlist = new Map(data.watchlist.map((item) => [item.product_name, item]));
         loaded = true;
+        pricingIsCurrent = true;
+        showPriceGuide(data.pricing);
         $("catalog-preview").hidden = true;
         const validSelections = new Set(products.filter(available).map(({id}) => id));
         for (const id of selection) {
@@ -569,12 +603,18 @@ async function load() {
         const update = formatDate(data.updated_at);
         $("stock-time").textContent = demo ? "Cari harga dan ketersediaan per varian." : update ? `Diperbarui ${update}` : "Snapshot stok belum tersedia.";
     } catch (error) {
+        if (request !== stockLoad) return false;
         $("stock-time").textContent = "Stok belum dapat ditampilkan.";
         const sessionError = error.status === 401 || error.status === 403;
         notice(error.message, sessionError ? "Kembali ke bot" : "Coba lagi", sessionError ? () => telegram.close() : load);
+        return false;
+    } finally {
+        if (request === stockLoad) {
+            $("refresh").disabled = false;
+            renderLists();
+        }
     }
-    $("refresh").disabled = false;
-    renderLists();
+    return true;
 }
 
 async function makeCatalog() {
@@ -590,8 +630,8 @@ async function makeCatalog() {
         }
         $("catalog-text").value = result.text;
         const notes = [];
-        if (result.uses_cost) notes.push("Atur target untung di Pengaturan untuk menampilkan harga jual.");
-        if (result.missing_price) notes.push("Sebagian varian belum memiliki harga.");
+        if (result.zero_profit) notes.push("Target untung masih nol. Ubah di Pengaturan jika perlu.");
+        if (result.missing_price) notes.push("Varian tanpa estimasi harga jual ditulis sebagai “Tanya harga”.");
         $("catalog-note").textContent = notes.join(" ");
         $("catalog-note").hidden = notes.length === 0;
         $("catalog-preview").hidden = false;
@@ -689,7 +729,13 @@ async function submitPricing(save) {
             const {settings} = await api("pricing/settings", "PUT", values);
             setPricingValues(settings);
             $("catalog-preview").hidden = true;
-            pricingStatus("Setelan tersimpan untuk akun Telegrammu.");
+            pricingIsCurrent = false;
+            showPriceGuide(null);
+            renderLists();
+            pricingStatus("Setelan tersimpan. Memperbarui harga produk…");
+            const refreshed = await load({resetPage: false});
+            pricingStatus(refreshed ? "Setelan tersimpan. Harga produk sudah diperbarui."
+                : "Setelan tersimpan. Muat ulang stok untuk melihat harga baru.");
         } else {
             const result = await api("pricing/calculate", "POST", {...values, cost});
             if (activeView !== "pricing" || cost !== $("pricing-cost").value) {
@@ -769,6 +815,11 @@ $("stock-list").addEventListener("keydown", (event) => {
 $("previous").addEventListener("click", () => renderPage(currentPage - 1));
 $("next").addEventListener("click", () => renderPage(currentPage + 1));
 $("refresh").addEventListener("click", load);
+$("show-price-guide").addEventListener("click", (event) => {
+    const guide = $("price-guide");
+    guide.hidden = !guide.hidden;
+    event.currentTarget.setAttribute("aria-expanded", String(!guide.hidden));
+});
 $("make-catalog").addEventListener("click", makeCatalog);
 $("copy").addEventListener("click", copyCatalog);
 $("pricing-retry").addEventListener("click", loadPricing);

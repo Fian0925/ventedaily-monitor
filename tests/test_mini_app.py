@@ -131,8 +131,60 @@ class MiniAppTests(unittest.TestCase):
             sold_out = self.client.post("/mini/api/catalog", headers=self.headers, json={"products": ["Produk Navy SIZE XL"]})
         self.assertEqual(ready.status_code, 200)
         self.assertIn("Rp 131.300", ready.get_json()["text"])
-        self.assertFalse(ready.get_json()["uses_cost"])
+        self.assertFalse(ready.get_json()["zero_profit"])
         self.assertEqual(sold_out.status_code, 409)
+
+    def test_product_prices_use_each_accounts_settings_and_match_catalog(self):
+        product = "Produk Navy SIZE Size L"
+        reference = "Produk Beige SIZE M"
+        self.snapshot["data"][reference] = {"stock": "Ready", "harga": "Rp 170.000", "catalog_price": True}
+        accounts = {
+            "42": {"role": "admin", "markup_type": "nominal", "markup_value": 30000, "admin_fee": 0},
+            "99": {"role": "admin", "marketplace": "tokopedia", "markup_type": "nominal",
+                   "markup_value": 15000, "admin_fee": 5},
+        }
+        with (
+            patch.object(database, "get_user_settings", side_effect=accounts.__getitem__),
+            patch.object(database, "read_snapshot", return_value=self.snapshot),
+            patch.object(database, "call_rpc", return_value=[]),
+        ):
+            for user_id, price in ((42, 131300), (99, 122400)):
+                with self.subTest(user=user_id):
+                    headers = {"Authorization": f"tma {init_data(user_id=user_id)}"}
+                    dashboard = self.client.get("/mini/api/dashboard", headers=headers).get_json()
+                    variants = {item["id"]: item for item in dashboard["products"]}
+                    self.assertEqual(variants[product]["selling_price"], price)
+                    self.assertEqual(variants[product]["price_source"], "reseller")
+                    self.assertEqual(variants[reference]["price_source"], "catalog")
+                    self.assertIsNone(variants[reference]["selling_price"])
+                    catalog = self.client.post("/mini/api/catalog", headers=headers, json={
+                        "products": [product, reference],
+                    }).get_json()
+                    self.assertIn(f"Rp {price:,}".replace(",", "."), catalog["text"])
+                    self.assertIn("Tanya harga", catalog["text"])
+                    self.assertNotIn("Rp 170.000", catalog["text"])
+
+    def test_defect_variants_are_hidden_and_cannot_be_added(self):
+        removed = {
+            "[DEFECT] Produk Lime SIZE L": {"stock": "Aman", "harga": "Rp 75.000"},
+            "Produk Lime SIZE XL": {"stock": " dEfEcT ", "harga": "Rp 75.000"},
+            "Produk Pink SIZE M": {"stock": "Ready", "product_name": "(Defect) Produk", "harga": "Rp 75.000"},
+        }
+        self.snapshot["data"].update(removed)
+        with (
+            patch.object(database, "get_user_settings", return_value={"role": "admin"}),
+            patch.object(database, "read_snapshot", return_value=self.snapshot),
+            patch.object(database, "call_rpc", return_value=[{"product_name": name} for name in removed]),
+        ):
+            response = self.client.get("/mini/api/dashboard", headers=self.headers).get_json()
+            self.assertEqual({item["stock"] for item in response["products"]}, {"Aman", "Habis"})
+            self.assertEqual(response["watchlist"], [])
+            for name in removed:
+                with self.subTest(variant=name):
+                    watch = self.client.post("/mini/api/watchlist", headers=self.headers, json={"product": name})
+                    catalog = self.client.post("/mini/api/catalog", headers=self.headers, json={"products": [name]})
+                    self.assertEqual(watch.status_code, 404)
+                    self.assertEqual(catalog.status_code, 409)
 
     def test_pricing_settings_use_the_signed_user_and_keep_accounts_separate(self):
         accounts = {

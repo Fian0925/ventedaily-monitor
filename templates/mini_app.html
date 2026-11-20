@@ -9,9 +9,9 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='mini-app/dashboard.css', v=11) }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='mini-app/dashboard.css', v=12) }}">
     <script src="https://telegram.org/js/telegram-web-app.js?59" defer></script>
-    <script src="{{ url_for('static', filename='mini-app/dashboard.js', v=11) }}" defer></script>
+    <script src="{{ url_for('static', filename='mini-app/dashboard.js', v=12) }}" defer></script>
 </head>
 <body>
     <header class="app-nav">
@@ -103,11 +103,19 @@
                 </div>
             </div>
 
-            <ul id="stock-legend" class="stock-legend" aria-label="Keterangan stok" hidden>
-                <li class="pill available">Aman</li>
-                <li class="pill low">Ready</li>
-                <li class="pill out">Habis</li>
-            </ul>
+            <div class="stock-key">
+                <ul id="stock-legend" class="stock-legend" aria-label="Keterangan stok" hidden>
+                    <li class="pill available">Aman</li>
+                    <li class="pill low">Ready</li>
+                    <li class="pill out">Habis</li>
+                </ul>
+                <button id="show-price-guide" class="clear-filters" type="button" aria-controls="price-guide" aria-expanded="false" hidden>Dasar harga</button>
+            </div>
+            <div id="price-guide" class="price-guide" hidden>
+                <p id="price-settings-line"></p>
+                <p>Harga jual dihitung dari modal reseller Vente, biaya packing, target untung, dan potongan admin, lalu dibulatkan ke atas ke kelipatan Rp 100.</p>
+                <p>Jika modal reseller belum tersedia, harga katalog Vente ditampilkan sebagai referensi.</p>
+            </div>
             <div id="stock-list" class="carousel" role="region" aria-label="Produk" tabindex="0"></div>
         </section>
 
