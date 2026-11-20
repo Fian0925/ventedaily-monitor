@@ -6,6 +6,8 @@ const demo = !telegram?.initData;
 const dateTime = new Intl.DateTimeFormat("id-ID", {
     dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Jakarta",
 });
+const rupiah = new Intl.NumberFormat("id-ID", {style: "currency", currency: "IDR", maximumFractionDigits: 0});
+const wholeNumber = new Intl.NumberFormat("id-ID", {maximumFractionDigits: 0});
 const sizeOrder = ["XXS", "XS", "S", "M", "L", "XL", "XXL", "XXXL", "ALL SIZE", "FREE SIZE"];
 let products = [];
 let watchlist = new Map();
@@ -23,6 +25,8 @@ const resizeActivePage = typeof ResizeObserver === "function"
 let loaded = false;
 let activeView = "stock";
 let feedbackTimer;
+let marketplaces;
+let loadingPricing = false;
 
 const examples = [
     ["Sasmita", "Family", "Navy", "L", "Aman", "Rp 149.000"],
@@ -102,6 +106,7 @@ function changeView(view) {
         else button.removeAttribute("aria-current");
     }
     if (view === "stock") renderPage(currentPage);
+    if (view === "pricing") loadPricing();
     if (window.scrollY > 160) $(view).scrollIntoView({block: "start"});
 }
 
@@ -204,6 +209,9 @@ function toggleProductOptions(anchor, product) {
 
     const menu = $("product-options");
     menu.replaceChildren(...variantActionButtons(product, "stock"));
+    if (!demo && product.price && /[0-9]/.test(product.price)) {
+        menu.append(action("Hitung harga jual", () => openProductCalculator(product)));
+    }
     optionsAnchor = anchor;
     anchor.setAttribute("aria-expanded", "true");
     menu.hidden = false;
@@ -582,7 +590,7 @@ async function makeCatalog() {
         }
         $("catalog-text").value = result.text;
         const notes = [];
-        if (result.uses_cost) notes.push("Atur target profit lewat /setmarkup di bot untuk menampilkan harga jual.");
+        if (result.uses_cost) notes.push("Atur target untung di Pengaturan untuk menampilkan harga jual.");
         if (result.missing_price) notes.push("Sebagian varian belum memiliki harga.");
         $("catalog-note").textContent = notes.join(" ");
         $("catalog-note").hidden = notes.length === 0;
@@ -604,6 +612,102 @@ async function copyCatalog() {
         text.focus();
         text.select();
         feedback("Teks dipilih. Salin dari menu perangkatmu.");
+    }
+}
+
+function pricingStatus(message, error = false) {
+    const status = $("pricing-status");
+    status.textContent = message;
+    status.hidden = !message;
+    status.classList.toggle("is-error", error);
+}
+
+function setMarkupUnit() {
+    const nominal = $("pricing-kind").value === "nominal";
+    $("pricing-unit").textContent = nominal ? "Rp" : "%";
+    $("pricing-markup").inputMode = nominal ? "numeric" : "decimal";
+}
+
+function setPricingValues(settings) {
+    $("pricing-marketplace").value = settings.marketplace;
+    $("pricing-fee").value = settings.admin_fee.replace(".", ",");
+    $("pricing-kind").value = settings.markup_type;
+    $("pricing-markup").value = settings.markup_type === "nominal" && /^[0-9]+$/.test(settings.markup_value)
+        ? wholeNumber.format(Number(settings.markup_value)) : settings.markup_value.replace(".", ",");
+    setMarkupUnit();
+}
+
+async function loadPricing() {
+    if (demo) {
+        $("pricing-load-status").textContent = "Buka Mini App dari bot Telegram untuk memakai kalkulator dan menyimpan setelan.";
+        return;
+    }
+    if (marketplaces || loadingPricing) return;
+    loadingPricing = true;
+    $("pricing-load-status").textContent = "Memuat pengaturan…";
+    $("pricing-retry").hidden = true;
+    try {
+        const data = await api("pricing/settings");
+        marketplaces = data.marketplaces;
+        $("pricing-marketplace").replaceChildren(...Object.entries(marketplaces)
+            .map(([key, {name}]) => new Option(name, key)));
+        $("pricing-packing").textContent = rupiah.format(data.packing_cost);
+        setPricingValues(data.settings);
+        $("pricing-load").hidden = true;
+        $("pricing-content").hidden = false;
+    } catch (error) {
+        $("pricing-load-status").textContent = error.message;
+        $("pricing-retry").hidden = error.status === 401 || error.status === 403;
+    } finally {
+        loadingPricing = false;
+    }
+}
+
+function openProductCalculator(product) {
+    $("pricing-cost").value = product.price.replace(/^Rp\.?\s*/i, "");
+    $("pricing-product").textContent = [product.name, product.color, formatSize(product.size)].filter(Boolean).join(" · ");
+    $("pricing-product").hidden = false;
+    $("pricing-result").hidden = true;
+    pricingStatus("");
+    changeView("pricing");
+}
+
+async function submitPricing(save) {
+    const fields = $("pricing-fields");
+    if (fields.disabled || !marketplaces) return;
+    const values = {
+        marketplace: $("pricing-marketplace").value,
+        admin_fee: $("pricing-fee").value,
+        markup_type: $("pricing-kind").value,
+        markup_value: $("pricing-markup").value,
+    };
+    const cost = $("pricing-cost").value;
+    fields.disabled = true;
+    pricingStatus(save ? "Menyimpan setelan…" : "Menghitung harga jual…");
+    try {
+        if (save) {
+            const {settings} = await api("pricing/settings", "PUT", values);
+            setPricingValues(settings);
+            $("catalog-preview").hidden = true;
+            pricingStatus("Setelan tersimpan untuk akun Telegrammu.");
+        } else {
+            const result = await api("pricing/calculate", "POST", {...values, cost});
+            if (activeView !== "pricing" || cost !== $("pricing-cost").value) {
+                pricingStatus("");
+                return;
+            }
+            $("result-selling-price").textContent = rupiah.format(result.harga_jual);
+            $("result-cost").textContent = rupiah.format(result.modal);
+            $("result-fee").textContent = rupiah.format(result.admin_fee);
+            $("result-profit").textContent = rupiah.format(result.actual_profit);
+            $("pricing-result").hidden = false;
+            $("pricing-result").scrollIntoView({block: "nearest"});
+            pricingStatus("");
+        }
+    } catch (error) {
+        pricingStatus(error.message, true);
+    } finally {
+        fields.disabled = false;
     }
 }
 
@@ -667,6 +771,24 @@ $("next").addEventListener("click", () => renderPage(currentPage + 1));
 $("refresh").addEventListener("click", load);
 $("make-catalog").addEventListener("click", makeCatalog);
 $("copy").addEventListener("click", copyCatalog);
+$("pricing-retry").addEventListener("click", loadPricing);
+$("pricing-marketplace").addEventListener("change", (event) => {
+    $("pricing-fee").value = String(marketplaces[event.target.value].fee).replace(".", ",");
+});
+$("pricing-kind").addEventListener("change", () => {
+    $("pricing-markup").value = "";
+    setMarkupUnit();
+});
+$("pricing-cost").addEventListener("input", () => { $("pricing-product").hidden = true; });
+$("pricing-form").addEventListener("input", () => {
+    $("pricing-result").hidden = true;
+    pricingStatus("");
+});
+$("pricing-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    submitPricing(false);
+});
+$("save-pricing").addEventListener("click", () => submitPricing(true));
 
 if (demo) {
     $("mode").hidden = false;

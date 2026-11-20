@@ -3,6 +3,7 @@ import hmac
 import json
 import re
 import time
+from decimal import Decimal
 from urllib.parse import parse_qsl, urlsplit
 
 import requests
@@ -24,6 +25,7 @@ CATALOG_COLORS = sorted((*commands.PRODUCT_COLORS,
     'Pistacio', 'Orchid', 'Cherry', 'Terracota', 'Frappucino', 'Turqoise',
     'Redwood', 'Gold', 'Walnut', 'Sand', 'Mocha',
 ), key=len, reverse=True)
+MAX_RUPIAH = 1_000_000_000
 
 
 def verify_telegram_user(init_data, bot_token, now):
@@ -80,7 +82,7 @@ def register_handlers(bot):
             keyboard = types.InlineKeyboardMarkup().add(
                 types.InlineKeyboardButton("Buka Dashboard", web_app=types.WebAppInfo(url))
             )
-            bot.reply_to(message, "Cari stok, pantau varian, dan buat katalog di dashboard.", reply_markup=keyboard)
+            bot.reply_to(message, "Cari stok, pantau varian, buat katalog, dan hitung harga jual di dashboard.", reply_markup=keyboard)
 
 
 @mini_app.get("/")
@@ -117,7 +119,7 @@ def private_api_response(response):
 @mini_app.errorhandler(requests.RequestException)
 def handle_database_error(exc):
     print(f"Mini App database request failed: {exc}")
-    return {"error": "Layanan stok sedang tidak tersedia. Coba lagi sebentar."}, 503
+    return {"error": "Layanan Dashboard sedang tidak tersedia. Coba lagi sebentar."}, 503
 
 
 def snapshot_products():
@@ -223,6 +225,99 @@ def create_catalog():
             lines.append(f"• {prefix}{', '.join(labels) or 'Tersedia'}")
     lines.extend(("", "Chat untuk cek ketersediaan dan pesan."))
     return {"text": "\n".join(lines), "uses_cost": markup <= 0, "missing_price": has_missing_price}
+
+
+def pricing_settings(settings):
+    marketplace = settings.get("marketplace")
+    if marketplace not in calculator.MARKETPLACES:
+        marketplace = "shopee"
+    fee = settings.get("admin_fee")
+    markup = settings.get("markup_value")
+    kind = "nominal" if settings.get("markup_type") == "nominal" else "percent"
+    if markup is None:
+        markup = 0
+    if kind == "nominal" and isinstance(markup, (int, float)) and float(markup).is_integer():
+        markup = int(markup)
+    return {
+        "marketplace": marketplace,
+        "admin_fee": str(calculator.MARKETPLACES[marketplace]["fee"] if fee is None else fee),
+        "markup_type": kind,
+        "markup_value": str(markup),
+    }
+
+
+def parse_rupiah(value):
+    if not isinstance(value, str) or len(value) > 24 or not calculator.is_nominal_amount(value):
+        return None
+    amount = calculator.parse_price(value)
+    return amount if amount <= MAX_RUPIAH else None
+
+
+def parse_percentage(value, maximum):
+    if not isinstance(value, str) or len(value) > 24:
+        return None
+    text = value.strip().removesuffix("%").strip()
+    if re.fullmatch(r"[0-9]+(?:[.,][0-9]+)?", text):
+        number = Decimal(text.replace(",", "."))
+        if number <= maximum:
+            return number
+    return None
+
+
+def validate_pricing(body):
+    values = body if isinstance(body, dict) else {}
+    marketplace = values.get("marketplace")
+    if not isinstance(marketplace, str) or marketplace not in calculator.MARKETPLACES:
+        raise ValueError("Pilih marketplace yang tersedia.")
+    fee = parse_percentage(values.get("admin_fee"), Decimal("99.99"))
+    if fee is None:
+        raise ValueError("Masukkan potongan admin antara 0 dan 99,99%.")
+    kind = values.get("markup_type")
+    raw_markup = values.get("markup_value")
+    if kind == "percent":
+        markup = parse_percentage(raw_markup, 1000)
+        if markup is None:
+            raise ValueError("Masukkan target untung antara 0 dan 1.000%.")
+    elif kind == "nominal":
+        markup = parse_rupiah(raw_markup)
+        if markup is None:
+            raise ValueError("Masukkan target untung antara Rp 0 dan Rp 1.000.000.000.")
+    else:
+        raise ValueError("Pilih persen atau rupiah untuk target untung.")
+    return {"marketplace": marketplace, "admin_fee": fee, "markup_type": kind, "markup_value": markup}
+
+
+@mini_app.route("/api/pricing/settings", methods=["GET", "PUT"])
+def selling_price_settings():
+    if request.method == "GET":
+        return {
+            "settings": pricing_settings(g.settings),
+            "marketplaces": calculator.MARKETPLACES,
+            "packing_cost": config.BIAYA_TAMBAHAN,
+        }
+    try:
+        pricing = validate_pricing(request.get_json(silent=True))
+    except ValueError as exc:
+        return {"error": str(exc)}, 400
+    # PostgREST accepts decimal strings for numeric columns without rounding through a float.
+    pricing.update(admin_fee=str(pricing["admin_fee"]), markup_value=str(pricing["markup_value"]))
+    saved = database.update_user_pricing(g.user_id, pricing)
+    return {"settings": pricing_settings(saved)}
+
+
+@mini_app.post("/api/pricing/calculate")
+def calculate_selling_price():
+    body = request.get_json(silent=True)
+    try:
+        pricing = validate_pricing(body)
+    except ValueError as exc:
+        return {"error": str(exc)}, 400
+    cost_text = body.get("cost")
+    if not parse_rupiah(cost_text):
+        return {"error": "Masukkan harga modal antara Rp 1 dan Rp 1.000.000.000."}, 400
+    return calculator.calculate_price(
+        cost_text, pricing["markup_value"], pricing["markup_type"], pricing["admin_fee"], config.BIAYA_TAMBAHAN,
+    )
 
 
 def send_restock_alerts(bot):

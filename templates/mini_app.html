@@ -9,9 +9,9 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='mini-app/dashboard.css', v=10) }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='mini-app/dashboard.css', v=11) }}">
     <script src="https://telegram.org/js/telegram-web-app.js?59" defer></script>
-    <script src="{{ url_for('static', filename='mini-app/dashboard.js', v=10) }}" defer></script>
+    <script src="{{ url_for('static', filename='mini-app/dashboard.js', v=11) }}" defer></script>
 </head>
 <body>
     <header class="app-nav">
@@ -26,6 +26,7 @@
                 <button type="button" data-view="stock" aria-controls="stock" aria-current="page"><span class="nav-icon icon-stock" aria-hidden="true"></span>Stok</button>
                 <button type="button" data-view="watch" aria-controls="watch"><span class="nav-icon icon-bell" aria-hidden="true"></span>Pantauan<span id="watch-count" class="count" hidden>0</span></button>
                 <button type="button" data-view="catalog" aria-controls="catalog"><span class="nav-icon icon-catalog" aria-hidden="true"></span>Katalog<span id="catalog-count" class="count" hidden>0</span></button>
+                <button type="button" data-view="pricing" aria-controls="pricing"><span class="nav-icon icon-settings" aria-hidden="true"></span>Pengaturan</button>
             </nav>
         </div>
     </header>
@@ -128,6 +129,66 @@
                 <p id="catalog-note" class="catalog-note" hidden></p>
                 <textarea id="catalog-text" readonly rows="9"></textarea>
                 <button id="copy" type="button" class="button primary">Salin teks</button>
+            </div>
+        </section>
+        <section id="pricing" class="view" aria-labelledby="pricing-title" hidden>
+            <div class="view-header">
+                <div><h1 id="pricing-title">Kalkulator harga jual</h1><p>Hitung harga jual dan simpan setelan toko untuk akun Telegrammu.</p></div>
+            </div>
+            <div id="pricing-load" class="pricing-load list">
+                <p id="pricing-load-status" role="status">Memuat pengaturan…</p>
+                <button id="pricing-retry" class="button secondary" type="button" hidden>Coba lagi</button>
+            </div>
+            <div class="pricing-grid" id="pricing-content" hidden>
+                <form id="pricing-form" class="pricing-panel">
+                    <fieldset id="pricing-fields">
+                        <label class="field">
+                            <span>Harga modal per produk</span>
+                            <span class="field-control pricing-input"><span aria-hidden="true">Rp</span>
+                                <input id="pricing-cost" placeholder="100.000" inputmode="numeric" maxlength="24" autocomplete="off">
+                            </span>
+                        </label>
+                        <p id="pricing-product" class="pricing-hint" hidden></p>
+                        <div class="pricing-preferences">
+                            <h2>Setelan toko</h2>
+                            <div class="pricing-fields">
+                                <label class="field">
+                                    <span>Marketplace</span>
+                                    <span class="field-control select-field"><select id="pricing-marketplace"></select></span>
+                                </label>
+                                <label class="field">
+                                    <span>Potongan admin</span>
+                                    <span class="field-control pricing-input"><input id="pricing-fee" inputmode="decimal" maxlength="24" autocomplete="off"><span aria-hidden="true">%</span></span>
+                                </label>
+                                <label class="field">
+                                    <span>Jenis target untung</span>
+                                    <span class="field-control select-field">
+                                        <select id="pricing-kind"><option value="percent">Persen (%)</option><option value="nominal">Nominal rupiah</option></select>
+                                    </span>
+                                </label>
+                                <label class="field">
+                                    <span>Target untung</span>
+                                    <span class="field-control pricing-input"><input id="pricing-markup" inputmode="decimal" maxlength="24" autocomplete="off"><span id="pricing-unit" aria-hidden="true">%</span></span>
+                                </label>
+                            </div>
+                            <p class="pricing-hint">Biaya packing <strong id="pricing-packing"></strong> per produk.</p>
+                        </div>
+                        <div class="pricing-actions">
+                            <button class="button primary" type="submit">Hitung harga jual</button>
+                            <button class="button secondary" id="save-pricing" type="button">Simpan setelan</button>
+                        </div>
+                    </fieldset>
+                    <p id="pricing-status" class="pricing-status" role="status" hidden></p>
+                </form>
+                <section class="pricing-panel pricing-output" id="pricing-result" aria-label="Hasil kalkulasi" aria-live="polite" hidden>
+                    <h2>Estimasi harga jual</h2>
+                    <p id="result-selling-price" class="selling-price"></p>
+                    <dl>
+                        <div><dt>Total modal dan packing</dt><dd id="result-cost"></dd></div>
+                        <div><dt>Potongan admin</dt><dd id="result-fee"></dd></div>
+                        <div><dt>Untung bersih</dt><dd id="result-profit"></dd></div>
+                    </dl>
+                </section>
             </div>
         </section>
         <div id="product-options" class="product-options" role="group" aria-label="Aksi produk" hidden></div>

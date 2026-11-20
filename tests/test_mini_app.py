@@ -134,6 +134,69 @@ class MiniAppTests(unittest.TestCase):
         self.assertFalse(ready.get_json()["uses_cost"])
         self.assertEqual(sold_out.status_code, 409)
 
+    def test_pricing_settings_use_the_signed_user_and_keep_accounts_separate(self):
+        accounts = {
+            "42": {"role": "admin", "marketplace": "shopee", "markup_type": "nominal", "markup_value": 30000.0},
+            "99": {"role": "admin", "marketplace": "lazada", "markup_value": 20, "admin_fee": 0},
+        }
+        path = "/mini/api/pricing/settings"
+        other_headers = {"Authorization": f"tma {init_data(user_id=99)}"}
+
+        def update(chat_id, pricing):
+            accounts[chat_id].update(pricing)
+            return accounts[chat_id]
+
+        with (
+            patch.object(database, "get_user_settings", side_effect=accounts.__getitem__),
+            patch.object(database, "update_user_pricing", side_effect=update) as save,
+        ):
+            original = self.client.get(path, headers=self.headers)
+            self.assertEqual(original.get_json()["settings"]["markup_value"], "30000")
+            self.assertIn("no-store", original.headers["Cache-Control"])
+            payload = {
+                "marketplace": "tokopedia", "admin_fee": "5,25",
+                "markup_type": "nominal", "markup_value": "40.000",
+            }
+            result = self.client.put(path, headers=self.headers, json={**payload, "chat_id": "99", "role": "user"})
+            self.assertEqual(result.status_code, 200)
+            saved = {**payload, "admin_fee": "5.25", "markup_value": "40000"}
+            save.assert_called_once_with("42", saved)
+            self.assertEqual(self.client.get(path, headers=self.headers).get_json()["settings"], saved)
+            other = self.client.get(path, headers=other_headers).get_json()["settings"]
+            self.assertEqual((other["marketplace"], other["markup_value"], other["admin_fee"]), ("lazada", "20", "0"))
+            self.assertEqual(self.client.put(path, json=payload).status_code, 401)
+
+    def test_pricing_preview_accepts_rupiah_formats_and_rounds_up(self):
+        path = "/mini/api/pricing/calculate"
+        payload = {"marketplace": "shopee", "admin_fee": "0,01", "markup_type": "nominal", "markup_value": "29.950"}
+        with (
+            patch.object(database, "get_user_settings", return_value={"role": "admin"}),
+            patch.object(database, "update_user_pricing") as save,
+        ):
+            for cost in ("30000", "30,000", "30.000"):
+                with self.subTest(cost=cost):
+                    result = self.client.post(path, headers=self.headers, json={**payload, "cost": cost})
+                    self.assertEqual(result.status_code, 200)
+                    data = result.get_json()
+                    self.assertEqual(data["harga_jual"], 61300)
+                    self.assertGreaterEqual(data["actual_profit"], 29950)
+            for invalid in ({"cost": "30,00"}, {"admin_fee": "100"}, {"markup_value": "NaN"}):
+                result = self.client.post(path, headers=self.headers, json={**payload, "cost": "30000", **invalid})
+                self.assertEqual(result.status_code, 400)
+            save.assert_not_called()
+
+    def test_pricing_update_requires_supabase_to_return_the_updated_account(self):
+        values = {"marketplace": "tokopedia", "admin_fee": "0", "markup_type": "percent", "markup_value": "20"}
+        with (
+            patch.object(database, "get_user_settings", return_value={"role": "admin"}),
+            patch.object(database.session, "patch") as update,
+        ):
+            update.return_value.json.return_value = []
+            response = self.client.put("/mini/api/pricing/settings", headers=self.headers, json=values)
+            self.assertEqual(response.status_code, 503)
+            self.assertEqual(update.call_args.kwargs["params"], {"chat_id": "eq.42"})
+            self.assertEqual(update.call_args.kwargs["json"], values)
+
     def test_render_url_is_used_when_no_override_is_set(self):
         with patch.dict(os.environ, {"MINI_APP_URL": "", "RENDER_EXTERNAL_URL": "https://bot.onrender.com/"}):
             settings = runpy.run_path(config.__file__)

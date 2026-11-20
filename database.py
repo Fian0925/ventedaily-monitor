@@ -265,6 +265,21 @@ def set_user_markup(chat_id, markup_type, value):
         print(f"Error setting markup: {e}")
         return False
 
+def update_user_pricing(chat_id, pricing):
+    response = session.patch(
+        f"{SUPABASE_URL}/user_settings",
+        params={"chat_id": f"eq.{chat_id}"},
+        json=pricing,
+        headers={"Prefer": "return=representation"},
+        timeout=10,
+    )
+    response.raise_for_status()
+    rows = response.json()
+    if not rows:
+        raise requests.HTTPError("Pricing update matched no account")
+    return rows[0]
+
+
 def get_all_users():
     url = f"{SUPABASE_URL}/user_settings"
     try:

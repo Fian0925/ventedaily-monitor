@@ -1,5 +1,6 @@
 import math
 import re
+from decimal import ROUND_CEILING, Decimal
 
 MARKETPLACES = {
     "shopee": {"name": "Shopee", "fee": 6.5},
@@ -50,26 +51,23 @@ def calculate_price(modal_str, profit_value, profit_type, admin_pct, biaya_tamba
     biaya_tambahan: biaya tambahan per produk (misal 1250)
     """
     modal_vente = parse_price(modal_str)
-    if modal_vente == 0: return None
-    
+    if modal_vente == 0:
+        return None
+
     modal = modal_vente + biaya_tambahan
-    
+    target = Decimal(str(profit_value))
     if profit_type == 'percent':
-        profit_rp = modal * (profit_value / 100)
+        profit_rp = modal * target / 100
     else:
-        profit_rp = profit_value
-        
-    admin_decimal = admin_pct / 100
-    if admin_decimal >= 1: # Mencegah pembagian dengan nol atau negatif
-        admin_decimal = 0.99 
-        
-    harga_jual_raw = (modal + profit_rp) / (1 - admin_decimal)
-    
-    # Pembulatan ke atas (ratusan terdekat)
-    harga_jual_rounded = int(harga_jual_raw)
-    if harga_jual_rounded % 100 != 0:
-        harga_jual_rounded = ((harga_jual_rounded // 100) + 1) * 100
-        
+        profit_rp = target
+
+    admin_decimal = Decimal(str(admin_pct)) / 100
+    if admin_decimal >= 1:
+        admin_decimal = Decimal("0.99")
+
+    hundreds = (modal + profit_rp) / ((1 - admin_decimal) * 100)
+    harga_jual_rounded = int(hundreds.to_integral_value(rounding=ROUND_CEILING)) * 100
+
     # Kalkulasi ulang admin fee aktual dan net profit
     admin_fee_rp = int(harga_jual_rounded * admin_decimal)
     net_received = harga_jual_rounded - admin_fee_rp
