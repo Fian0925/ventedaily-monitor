@@ -22,9 +22,9 @@ class MonitorTelegramBot(telebot.TeleBot):
         super().__init__(token)
         self.poll_result = None
 
-    def get_updates(self, *args, **kwargs):
+    def _telegram_request(self, request, *args, **kwargs):
         try:
-            updates = super().get_updates(*args, **kwargs)
+            return request(*args, **kwargs)
         except telebot.apihelper.ApiTelegramException as exc:
             if exc.error_code == 409:
                 reason = "webhook_active" if "webhook" in exc.description.lower() else "polling_conflict"
@@ -38,6 +38,13 @@ class MonitorTelegramBot(telebot.TeleBot):
         except Exception:
             self.poll_result = (time.monotonic(), "polling_error")
             raise
+
+    def get_me(self):
+        # TeleBot fetches its identity before starting its first poll.
+        return self._telegram_request(super().get_me)
+
+    def get_updates(self, *args, **kwargs):
+        updates = self._telegram_request(super().get_updates, *args, **kwargs)
         self.poll_result = (time.monotonic(), None)
         return updates
 

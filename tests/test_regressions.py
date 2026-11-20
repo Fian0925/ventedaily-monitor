@@ -27,6 +27,15 @@ class MonitorRegressionTests(unittest.TestCase):
         bot = monitor.MonitorTelegramBot("123:offline-health-test")
         with patch.object(monitor, "telegram_thread", fake_thread), patch.object(monitor, "bot", bot):
             self.assertEqual(client.get("/healthz").get_json()["telegram"]["status"], "starting")
+            token_error = apihelper.ApiTelegramException("getMe", None, {
+                "error_code": 401, "description": "Unauthorized",
+            })
+            with patch.object(apihelper, "get_me", side_effect=token_error):
+                with self.assertRaises(apihelper.ApiTelegramException):
+                    bot.get_me()
+            self.assertEqual(client.get("/healthz").get_json()["telegram"], {
+                "status": "error", "reason": "telegram_http_401",
+            })
             error = apihelper.ApiTelegramException("getUpdates", None, {
                 "error_code": 409, "description": "Conflict: can't use getUpdates method while webhook is active",
             })
