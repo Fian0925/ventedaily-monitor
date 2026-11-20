@@ -148,7 +148,7 @@ class MiniAppTests(unittest.TestCase):
             patch.object(database, "read_snapshot", return_value=self.snapshot),
             patch.object(database, "call_rpc", return_value=[]),
         ):
-            for user_id, price in ((42, 131300), (99, 122400)):
+            for user_id, price, fee, profit in ((42, 131300, 0, 30050), (99, 122400, 6120, 15030)):
                 with self.subTest(user=user_id):
                     headers = {"Authorization": f"tma {init_data(user_id=user_id)}"}
                     dashboard = self.client.get("/mini/api/dashboard", headers=headers).get_json()
@@ -157,6 +157,10 @@ class MiniAppTests(unittest.TestCase):
                     self.assertEqual(variants[product]["price_source"], "reseller")
                     self.assertEqual(variants[reference]["price_source"], "catalog")
                     self.assertIsNone(variants[reference]["selling_price"])
+                    self.assertEqual(set(dashboard["price_quotes"]), {"Rp 100.000"})
+                    quote = dashboard["price_quotes"]["Rp 100.000"]
+                    self.assertEqual((quote["harga_jual"], quote["admin_fee"], quote["actual_profit"]), (price, fee, profit))
+                    self.assertEqual((quote["modal_vente"], quote["biaya_tambahan"]), (100000, config.BIAYA_TAMBAHAN))
                     catalog = self.client.post("/mini/api/catalog", headers=headers, json={
                         "products": [product, reference],
                     }).get_json()

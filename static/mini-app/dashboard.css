@@ -112,7 +112,7 @@ h1 { margin: 0; font-size: clamp(1.75rem, 3.15vw, 2.45rem); line-height: 1.08; f
 .carousel {
     display: grid; grid-auto-flow: column; grid-auto-columns: 100%; align-items: start;
     gap: .7rem; overflow-x: auto; overflow-y: hidden; overscroll-behavior-inline: contain;
-    scroll-snap-type: x mandatory; scrollbar-width: none;
+    scroll-snap-type: x mandatory; scrollbar-width: none; scroll-margin-top: .55rem;
 }
 .carousel::-webkit-scrollbar { display: none; }
 .product-page {
@@ -161,6 +161,7 @@ h1 { margin: 0; font-size: clamp(1.75rem, 3.15vw, 2.45rem); line-height: 1.08; f
     padding: .47rem .76rem; background: var(--tint); border-top: 1px solid var(--line);
 }
 .price-display { display: grid; gap: .06rem; min-width: 0; line-height: 1.22; }
+.summary-amount { display: flex; align-items: center; gap: .24rem; min-width: 0; }
 .summary-label { color: var(--muted); font-size: .7rem; font-weight: 650; }
 .price-origin { color: var(--muted); font-size: .67rem; white-space: nowrap; }
 .summary-price {
@@ -168,6 +169,12 @@ h1 { margin: 0; font-size: clamp(1.75rem, 3.15vw, 2.45rem); line-height: 1.08; f
     font-size: clamp(.92rem, 1.4vw, 1.1rem); font-weight: 700; letter-spacing: -.025em;
 }
 .summary-details { display: flex; justify-content: space-between; align-items: center; gap: .32rem; }
+.price-help {
+    display: inline-grid; place-items: center; flex: 0 0 auto; width: 1.5rem; height: 1.5rem;
+    padding: 0; border: 1px solid var(--line); border-radius: 50%;
+    background: var(--surface); color: var(--primary); font-size: .78rem; font-weight: 750;
+}
+.price-help:hover, .price-help[aria-expanded="true"] { border-color: #8aad9e; background: var(--tint); }
 .options-toggle {
     display: inline-flex; align-items: center; gap: .25rem; flex: 0 0 auto; min-height: 1.85rem;
     border: 1px solid transparent; border-radius: .38rem; padding: .14rem .35rem;
@@ -183,6 +190,7 @@ h1 { margin: 0; font-size: clamp(1.75rem, 3.15vw, 2.45rem); line-height: 1.08; f
 .is-search .card-main, .is-search .card-summary { display: contents; }
 .is-search .summary-details { justify-self: end; justify-content: flex-end; padding-top: .01rem; gap: .22rem; }
 .is-search .price-display, .product > .price-display { text-align: right; }
+.is-search .summary-amount, .product > .price-display .summary-amount { justify-content: flex-end; }
 .is-search .summary-price { font-size: .91rem; }
 .is-search .options-toggle { padding-inline: .22rem; }
 .is-search .options-toggle::before { display: none; }
@@ -195,8 +203,29 @@ h1 { margin: 0; font-size: clamp(1.75rem, 3.15vw, 2.45rem); line-height: 1.08; f
     background: var(--surface); box-shadow: 0 .35rem 1.2rem #102b2626;
 }
 .product-options .button { min-height: 2.25rem; text-align: left; padding: .35rem .55rem; }
-.carousel-controls { display: flex; align-items: center; gap: .38rem; flex: 0 0 auto; }
-.carousel-controls .button { min-height: 2.2rem; padding: .29rem .52rem; font-size: .78rem; }
+.price-details {
+    position: fixed; z-index: 5; width: min(19rem, calc(100% - 1rem)); max-height: calc(100vh - 1rem);
+    overflow: auto; overscroll-behavior: contain; padding: .7rem .78rem; border: 1px solid var(--line);
+    border-radius: .72rem; background: var(--surface); box-shadow: 0 .45rem 1.6rem #102b2630;
+}
+.price-details-header { display: flex; align-items: flex-start; justify-content: space-between; gap: .5rem; }
+.price-details h2 { margin: 0; font-size: .94rem; line-height: 1.25; }
+#price-marketplace { margin: .22rem 0 0; color: var(--primary); font-size: .81rem; font-weight: 700; }
+.price-details-close {
+    display: grid; place-items: center; flex: 0 0 auto; width: 1.65rem; height: 1.65rem; padding: 0;
+    border: 0; border-radius: .35rem; background: transparent; color: var(--muted); font-size: 1.15rem; line-height: 1;
+}
+.price-details-close:hover { background: var(--tint); }
+.price-details dl { display: grid; gap: .29rem; margin: .65rem 0 .38rem; font-size: .81rem; }
+.price-details dl div { display: flex; justify-content: space-between; gap: .45rem; }
+.price-details dt { color: var(--muted); }
+.price-details dd { margin: 0; font-weight: 700; white-space: nowrap; }
+.price-details .price-total { margin-top: .14rem; padding-top: .37rem; border-top: 1px solid var(--line); font-weight: 800; }
+.price-total dt, .price-total dd { color: var(--primary); }
+.price-rounding { margin: .48rem 0 0; color: var(--muted); font-size: .72rem; }
+
+.carousel-controls { display: flex; align-items: center; justify-content: center; gap: .55rem; margin-top: .65rem; }
+.carousel-controls .button { min-height: 2.75rem; min-width: 4.7rem; padding: .3rem .68rem; font-size: .83rem; }
 #carousel-position { color: var(--muted); min-width: 3ch; font-size: .8rem; font-weight: 650; font-variant-numeric: tabular-nums; text-align: center; }
 
 .list { overflow: hidden; border: 1px solid var(--line); border-radius: .8rem; background: var(--surface); }
@@ -280,7 +309,6 @@ textarea { display: block; width: 100%; margin: .6rem 0; padding: .65rem; backgr
     .card-summary { padding: .41rem .51rem; }
     .view-header { margin-bottom: .72rem; }
     .summary-price { font-size: .9rem; }
-    .carousel-controls .button { font-size: .74rem; }
     #carousel-position { font-size: .75rem; }
 }
 

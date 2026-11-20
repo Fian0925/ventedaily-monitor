@@ -4,7 +4,6 @@ import json
 import re
 import time
 from decimal import Decimal
-from functools import cache
 from urllib.parse import parse_qsl, urlsplit
 
 import requests
@@ -164,15 +163,17 @@ def product_details(name, item):
 def dashboard_data():
     products, updated_at = snapshot_products()
     pricing = saved_pricing(g.settings)
-
-    @cache
-    def quote(cost):
-        return estimate_selling_price(cost, pricing)
-
+    price_quotes = {}
     variants = {}
     for name in sorted(products, key=str.casefold):
         product = product_details(name, products[name])
-        product["selling_price"] = quote(product["price"]) if product["price_source"] == "reseller" else None
+        quote = None
+        if pricing is not None and product["price_source"] == "reseller":
+            cost = product["price"]
+            if cost not in price_quotes:
+                price_quotes[cost] = quote_selling_price(cost, pricing)
+            quote = price_quotes[cost]
+        product["selling_price"] = quote["harga_jual"] if quote else None
         variants[name] = product
     watched = database.call_rpc("get_mini_watchlist", {"p_chat_id": g.user_id})
     return {
@@ -180,6 +181,7 @@ def dashboard_data():
         "watchlist": [{**row, "product": variants[row["product_name"]]}
                       for row in watched if row["product_name"] in variants],
         "products": list(variants.values()),
+        "price_quotes": price_quotes,
         "pricing": {
             "marketplace": calculator.MARKETPLACES[pricing["marketplace"]]["name"],
             "admin_fee": str(pricing["admin_fee"]),
@@ -233,10 +235,11 @@ def create_catalog():
     has_missing_price = False
     priced = []
     for name, item in selected:
-        price = None if item.get("catalog_price") else estimate_selling_price(item.get("harga"), pricing)
-        if price is None:
+        quote = None if item.get("catalog_price") else quote_selling_price(item.get("harga"), pricing)
+        if quote is None:
             has_missing_price = True
-        priced.append((name, {**item, "harga": calculator.format_price(price) if price is not None else "Tanya harga"}))
+        price = calculator.format_price(quote["harga_jual"]) if quote else "Tanya harga"
+        priced.append((name, {**item, "harga": price}))
     for (name, price), colors in sorted(commands._group_products_by_variant(priced).items()):
         lines.extend(("", f"{name} — {price}"))
         for color, sizes in sorted(colors.items()):
@@ -318,12 +321,12 @@ def saved_pricing(settings):
         return None
 
 
-def estimate_selling_price(cost, pricing):
+def quote_selling_price(cost, pricing):
     if pricing is None or not parse_rupiah(cost):
         return None
     return calculator.calculate_price(
         cost, pricing["markup_value"], pricing["markup_type"], pricing["admin_fee"], config.BIAYA_TAMBAHAN,
-    )["harga_jual"]
+    )
 
 
 @mini_app.route("/api/pricing/settings", methods=["GET", "PUT"])

@@ -14,6 +14,8 @@ let watchlist = new Map();
 const selection = new Set();
 const selectedVariants = new Map();
 let optionsAnchor = null;
+let activePriceDetails = null;
+let priceDetailsTimer;
 const PAGE_SIZE = 12;
 const filterIds = ["category", "color", "size", "status"];
 let filteredGroups = [];
@@ -29,6 +31,8 @@ let marketplaces;
 let loadingPricing = false;
 let stockLoad = 0;
 let pricingIsCurrent = false;
+let stockPricing;
+let priceQuotes = {};
 
 const examples = [
     ["Sasmita", "Family", "Navy", "L", "Aman", "Rp 149.000"],
@@ -100,6 +104,7 @@ function feedback(message) {
 
 function changeView(view) {
     closeProductOptions();
+    closePriceDetails();
     activeView = view;
     for (const button of document.querySelectorAll("[data-view]")) {
         const id = button.dataset.view;
@@ -176,6 +181,7 @@ function stockPill(product) {
 }
 
 function showProductPrice(element, product) {
+    if (activePriceDetails && element.contains(activePriceDetails.anchor)) closePriceDetails();
     const origin = product.price_source;
     const hasEstimate = pricingIsCurrent && Number.isFinite(product.selling_price);
     let label = "Harga belum tersedia";
@@ -188,8 +194,80 @@ function showProductPrice(element, product) {
     else if (origin === "catalog") label = "Katalog Vente";
 
     const price = hasEstimate ? rupiah.format(product.selling_price) : (origin || demo) ? product.price : "—";
-    element.replaceChildren(node("span", "summary-label", label), node("span", "summary-price", price));
+    const amount = node("div", "summary-amount");
+    amount.append(node("span", "summary-price", price));
+    if (hasEstimate && stockPricing && priceQuotes[product.price]) {
+        const quote = priceQuotes[product.price];
+        const help = node("button", "price-help", "?");
+        help.type = "button";
+        help.setAttribute("aria-label", `Rincian harga jual ${product.name}`);
+        help.setAttribute("aria-controls", "price-details");
+        help.setAttribute("aria-expanded", "false");
+        help.addEventListener("pointerenter", (event) => {
+            if (event.pointerType === "mouse" && !activePriceDetails?.pinned) openPriceDetails(help, quote);
+        });
+        help.addEventListener("pointerleave", () => schedulePriceClose(help));
+        help.addEventListener("click", (event) => {
+            if (activePriceDetails?.anchor === help && activePriceDetails.pinned) {
+                closePriceDetails();
+                return;
+            }
+            openPriceDetails(help, quote, true);
+            if (event.detail === 0) $("close-price-details").focus({preventScroll: true});
+        });
+        amount.append(help);
+    }
+    element.replaceChildren(node("span", "summary-label", label), amount);
     if (detail) element.append(node("span", "price-origin", detail));
+}
+
+function closePriceDetails(restoreFocus = false) {
+    clearTimeout(priceDetailsTimer);
+    if (!activePriceDetails) return;
+    const {anchor} = activePriceDetails;
+    activePriceDetails = null;
+    anchor.setAttribute("aria-expanded", "false");
+    $("price-details").hidden = true;
+    if (restoreFocus) anchor.focus({preventScroll: true});
+}
+
+function schedulePriceClose(anchor) {
+    if (activePriceDetails?.anchor !== anchor || activePriceDetails.pinned) return;
+    clearTimeout(priceDetailsTimer);
+    priceDetailsTimer = setTimeout(closePriceDetails, 180);
+}
+
+function openPriceDetails(anchor, quote, pinned = false) {
+    clearTimeout(priceDetailsTimer);
+    if (activePriceDetails?.anchor === anchor) {
+        activePriceDetails.pinned ||= pinned;
+        return;
+    }
+    closePriceDetails();
+    closeProductOptions();
+    activePriceDetails = {anchor, pinned};
+    anchor.setAttribute("aria-expanded", "true");
+
+    const fee = stockPricing.admin_fee.replace(".", ",");
+    const target = stockPricing.markup_type === "percent"
+        ? ` (${stockPricing.markup_value.replace(".", ",")}%)` : "";
+    $("price-marketplace").textContent = stockPricing.marketplace;
+    const lines = [
+        ["Modal reseller Vente", quote.modal_vente],
+        ["Biaya packing", quote.biaya_tambahan],
+        [`Target untung${target}`, quote.profit_target],
+        [`Potongan admin (${fee}%)`, quote.admin_fee],
+        ["Harga jual", quote.harga_jual, "price-total"],
+        ["Untung bersih", quote.actual_profit],
+    ];
+    $("price-breakdown").replaceChildren(...lines.map(([label, amount, style]) => {
+        const row = node("div", style);
+        row.append(node("dt", "", label), node("dd", "", rupiah.format(amount)));
+        return row;
+    }));
+    const panel = $("price-details");
+    panel.hidden = false;
+    positionPopup(panel, anchor);
 }
 
 function productRow(product, context, lastRestock = null) {
@@ -227,6 +305,7 @@ function toggleProductOptions(anchor, product) {
         return;
     }
     closeProductOptions();
+    closePriceDetails();
 
     const menu = $("product-options");
     menu.replaceChildren(...variantActionButtons(product, "stock"));
@@ -236,15 +315,22 @@ function toggleProductOptions(anchor, product) {
     optionsAnchor = anchor;
     anchor.setAttribute("aria-expanded", "true");
     menu.hidden = false;
+    positionPopup(menu, anchor);
+    menu.firstElementChild?.focus({preventScroll: true});
+}
+
+function positionPopup(panel, anchor) {
     const rect = anchor.getBoundingClientRect();
     const margin = 8;
-    const maxLeft = window.innerWidth - menu.offsetWidth - margin;
-    const left = Math.max(margin, Math.min(maxLeft, rect.right - menu.offsetWidth));
-    const fitsBelow = rect.bottom + menu.offsetHeight + margin < window.innerHeight;
-    const top = fitsBelow ? rect.bottom + 4 : Math.max(margin, rect.top - menu.offsetHeight - 4);
-    menu.style.left = `${left}px`;
-    menu.style.top = `${top}px`;
-    menu.firstElementChild?.focus({preventScroll: true});
+    const maxLeft = document.documentElement.clientWidth - panel.offsetWidth - margin;
+    const left = Math.max(margin, Math.min(maxLeft, rect.right - panel.offsetWidth));
+    const below = window.innerHeight - rect.bottom - margin;
+    const above = rect.top - margin;
+    const preferredTop = below >= panel.offsetHeight + 4 || below >= above
+        ? rect.bottom + 4 : rect.top - panel.offsetHeight - 4;
+    const maxTop = window.innerHeight - panel.offsetHeight - margin;
+    panel.style.left = `${left}px`;
+    panel.style.top = `${Math.max(margin, Math.min(maxTop, preferredTop))}px`;
 }
 
 function variantMatrix(variants, choose) {
@@ -417,6 +503,7 @@ function syncCarouselHeight(page = $("stock-list").querySelector(".is-current"))
 
 function renderPage(index) {
     closeProductOptions();
+    closePriceDetails();
     clearTimeout(scrollTimer);
     const total = pageCount();
     if (!total) return;
@@ -448,8 +535,16 @@ function renderPage(index) {
     $("carousel-position").setAttribute("aria-label", `Halaman ${currentPage + 1} dari ${total}`);
 }
 
+function movePage(step) {
+    renderPage(currentPage + step);
+    const carousel = $("stock-list");
+    carousel.focus({preventScroll: true});
+    carousel.scrollIntoView({block: "start"});
+}
+
 function onCarouselScroll() {
     closeProductOptions();
+    closePriceDetails();
     clearTimeout(scrollTimer);
     scrollTimer = setTimeout(() => {
         const carousel = $("stock-list");
@@ -463,6 +558,7 @@ function onCarouselScroll() {
 
 function renderStock() {
     closeProductOptions();
+    closePriceDetails();
     const search = $("query").value.trim();
     const query = searchText(search);
     const carousel = $("stock-list");
@@ -594,7 +690,9 @@ async function load({resetPage = true} = {}) {
         watchlist = new Map(data.watchlist.map((item) => [item.product_name, item]));
         loaded = true;
         pricingIsCurrent = true;
-        showPriceGuide(data.pricing);
+        stockPricing = data.pricing;
+        priceQuotes = data.price_quotes || {};
+        showPriceGuide(stockPricing);
         $("catalog-preview").hidden = true;
         const validSelections = new Set(products.filter(available).map(({id}) => id));
         for (const id of selection) {
@@ -781,25 +879,33 @@ $("clear-filters").addEventListener("click", () => {
     renderStock();
     $("query").focus();
 });
-document.addEventListener("click", (event) => {
+function closeOutsidePopups(event) {
     if (optionsAnchor && !optionsAnchor.contains(event.target) && !$("product-options").contains(event.target)) {
         closeProductOptions();
     }
-});
-document.addEventListener("focusin", (event) => {
-    if (optionsAnchor && !optionsAnchor.contains(event.target) && !$("product-options").contains(event.target)) {
-        closeProductOptions();
+    if (activePriceDetails && !activePriceDetails.anchor.contains(event.target) && !$("price-details").contains(event.target)) {
+        closePriceDetails();
     }
-});
+}
+document.addEventListener("click", closeOutsidePopups);
+document.addEventListener("focusin", closeOutsidePopups);
 document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && optionsAnchor) {
+    if (event.key !== "Escape") return;
+    if (activePriceDetails) {
+        event.preventDefault();
+        closePriceDetails(activePriceDetails.pinned);
+    } else if (optionsAnchor) {
         event.preventDefault();
         closeProductOptions(true);
     }
 });
-window.addEventListener("scroll", () => closeProductOptions(), {passive: true});
+window.addEventListener("scroll", () => {
+    closeProductOptions();
+    closePriceDetails();
+}, {passive: true});
 window.addEventListener("resize", () => {
     closeProductOptions();
+    closePriceDetails();
     if (activeView === "stock") {
         const activePage = $("stock-list").querySelector(".is-current");
         if (activePage) $("stock-list").scrollLeft = pageOffset(activePage);
@@ -812,9 +918,14 @@ $("stock-list").addEventListener("keydown", (event) => {
     event.preventDefault();
     renderPage(currentPage + (event.key === "ArrowRight" ? 1 : -1));
 });
-$("previous").addEventListener("click", () => renderPage(currentPage - 1));
-$("next").addEventListener("click", () => renderPage(currentPage + 1));
+$("previous").addEventListener("click", () => movePage(-1));
+$("next").addEventListener("click", () => movePage(1));
 $("refresh").addEventListener("click", load);
+$("close-price-details").addEventListener("click", () => closePriceDetails(true));
+$("price-details").addEventListener("pointerenter", () => clearTimeout(priceDetailsTimer));
+$("price-details").addEventListener("pointerleave", () => {
+    if (activePriceDetails) schedulePriceClose(activePriceDetails.anchor);
+});
 $("show-price-guide").addEventListener("click", (event) => {
     const guide = $("price-guide");
     guide.hidden = !guide.hidden;

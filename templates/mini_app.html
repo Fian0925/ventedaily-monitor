@@ -9,9 +9,9 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='mini-app/dashboard.css', v=12) }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='mini-app/dashboard.css', v=13) }}">
     <script src="https://telegram.org/js/telegram-web-app.js?59" defer></script>
-    <script src="{{ url_for('static', filename='mini-app/dashboard.js', v=12) }}" defer></script>
+    <script src="{{ url_for('static', filename='mini-app/dashboard.js', v=13) }}" defer></script>
 </head>
 <body>
     <header class="app-nav">
@@ -96,11 +96,6 @@
                     <p id="result-count" role="status"></p>
                     <button id="clear-filters" class="clear-filters" type="button" hidden>Reset filter</button>
                 </div>
-                <div id="carousel-controls" class="carousel-controls" hidden>
-                    <button id="previous" class="button secondary" type="button" aria-label="Halaman sebelumnya" aria-controls="stock-list">Kembali</button>
-                    <span id="carousel-position" aria-live="polite"></span>
-                    <button id="next" class="button secondary" type="button" aria-label="Halaman berikutnya" aria-controls="stock-list">Lanjut</button>
-                </div>
             </div>
 
             <div class="stock-key">
@@ -117,6 +112,11 @@
                 <p>Jika modal reseller belum tersedia, harga katalog Vente ditampilkan sebagai referensi.</p>
             </div>
             <div id="stock-list" class="carousel" role="region" aria-label="Produk" tabindex="0"></div>
+            <nav id="carousel-controls" class="carousel-controls" aria-label="Halaman produk" hidden>
+                <button id="previous" class="button secondary" type="button" aria-label="Kembali ke halaman sebelumnya" aria-controls="stock-list">Kembali</button>
+                <span id="carousel-position" aria-live="polite"></span>
+                <button id="next" class="button secondary" type="button" aria-label="Lanjut ke halaman berikutnya" aria-controls="stock-list">Lanjut</button>
+            </nav>
         </section>
 
         <section id="watch" class="view" aria-labelledby="watch-title" hidden>
@@ -200,6 +200,14 @@
             </div>
         </section>
         <div id="product-options" class="product-options" role="group" aria-label="Aksi produk" hidden></div>
+        <section id="price-details" class="price-details" aria-labelledby="price-details-title" hidden>
+            <div class="price-details-header">
+                <div><h2 id="price-details-title">Rincian harga jual</h2><p id="price-marketplace"></p></div>
+                <button id="close-price-details" class="price-details-close" type="button" aria-label="Tutup rincian harga">×</button>
+            </div>
+            <dl id="price-breakdown"></dl>
+            <p class="price-rounding">Harga jual dibulatkan ke atas ke kelipatan Rp 100.</p>
+        </section>
         <p id="feedback" class="toast" role="status" aria-live="polite" hidden></p>
     </main>
 </body>
