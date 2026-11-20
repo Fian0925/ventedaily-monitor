@@ -92,6 +92,13 @@ h1 { margin: 0; font-size: clamp(1.75rem, 3.15vw, 2.45rem); line-height: 1.08; f
 .search-field .nav-icon { color: var(--muted); }
 .search-field input, .select-field select { width: 100%; min-width: 0; border: 0; background: transparent; font-size: .91rem; font-weight: 500; }
 .search-field input { padding: .53rem 0; }
+.search-field input::-webkit-search-cancel-button { appearance: none; }
+.search-clear {
+    display: grid; place-items: center; flex: 0 0 auto; width: 1.9rem; height: 1.9rem;
+    margin-inline-end: -.4rem; padding: 0; border: 0; border-radius: .38rem;
+    background: transparent; color: var(--muted); font-size: 1.16rem; line-height: 1;
+}
+.search-clear:hover, .search-clear:active { background: var(--tint); color: var(--primary); }
 .select-field select { appearance: none; padding: .54rem 1.48rem .54rem .62rem; text-overflow: ellipsis; }
 .select-field::after { content: ""; position: absolute; right: .66rem; top: 42%; width: .31rem; height: .31rem; border: solid var(--muted); border-width: 0 1.5px 1.5px 0; transform: rotate(45deg); pointer-events: none; }
 

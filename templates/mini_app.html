@@ -9,9 +9,9 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='mini-app/dashboard.css', v=13) }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='mini-app/dashboard.css', v=14) }}">
     <script src="https://telegram.org/js/telegram-web-app.js?59" defer></script>
-    <script src="{{ url_for('static', filename='mini-app/dashboard.js', v=13) }}" defer></script>
+    <script src="{{ url_for('static', filename='mini-app/dashboard.js', v=14) }}" defer></script>
 </head>
 <body>
     <header class="app-nav">
@@ -44,13 +44,14 @@
             </div>
 
             <div id="stock-filters" class="filters" role="group" aria-label="Filter stok">
-                <label class="field field-search">
-                    <span class="search-label">Cari produk</span>
-                    <span class="field-control search-field">
+                <div class="field field-search">
+                    <label class="search-label" for="query">Cari produk</label>
+                    <div class="field-control search-field">
                         <span class="nav-icon icon-search" aria-hidden="true"></span>
                         <input id="query" type="search" placeholder="Nama, warna, atau ukuran" autocomplete="off">
-                    </span>
-                </label>
+                        <button id="clear-query" class="search-clear" type="button" aria-label="Hapus pencarian" hidden>×</button>
+                    </div>
+                </div>
                 <button id="toggle-filters" class="button secondary filter-toggle" type="button" aria-controls="filter-fields" aria-expanded="false">Filter</button>
                 <div id="filter-fields" class="filter-fields">
                     <label class="field">

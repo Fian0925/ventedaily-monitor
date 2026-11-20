@@ -66,23 +66,27 @@ def dashboard_url():
 
 def register_handlers(bot):
     @bot.message_handler(commands=["dashboard"])
-    def open_dashboard(message):
-        url = dashboard_url()
-        if not url:
-            bot.reply_to(message, "Dashboard belum dikonfigurasi.")
-        elif message.chat.type != "private":
-            bot.reply_to(message, "Buka chat pribadi dengan bot untuk mengakses dashboard.")
-        elif commands._check_subscription(bot, message):
-            try:
-                database.call_rpc("get_mini_watchlist", {"p_chat_id": str(message.chat.id)})
-            except requests.RequestException as exc:
-                print(f"Mini App readiness check failed: {exc}")
-                bot.reply_to(message, "Dashboard belum siap. Silakan coba lagi nanti.")
-                return
-            keyboard = types.InlineKeyboardMarkup().add(
-                types.InlineKeyboardButton("Buka Dashboard", web_app=types.WebAppInfo(url))
-            )
-            bot.reply_to(message, "Cari stok, pantau varian, buat katalog, dan hitung harga jual di dashboard.", reply_markup=keyboard)
+    def dashboard_command(message):
+        open_dashboard(bot, message)
+
+
+def open_dashboard(bot, message):
+    url = dashboard_url()
+    if not url:
+        bot.reply_to(message, "Dashboard belum dikonfigurasi.")
+    elif message.chat.type != "private":
+        bot.reply_to(message, "Buka chat pribadi dengan bot untuk mengakses dashboard.")
+    elif commands._check_subscription(bot, message):
+        try:
+            database.call_rpc("get_mini_watchlist", {"p_chat_id": str(message.chat.id)})
+        except requests.RequestException as exc:
+            print(f"Mini App readiness check failed: {exc}")
+            bot.reply_to(message, "Dashboard belum siap. Silakan coba lagi nanti.")
+            return
+        keyboard = types.InlineKeyboardMarkup().add(
+            types.InlineKeyboardButton("Buka Dashboard", web_app=types.WebAppInfo(url))
+        )
+        bot.reply_to(message, "Cari stok, pantau varian, buat katalog, dan hitung harga jual di dashboard.", reply_markup=keyboard)
 
 
 @mini_app.get("/")

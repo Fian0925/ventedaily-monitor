@@ -559,7 +559,9 @@ function onCarouselScroll() {
 function renderStock() {
     closeProductOptions();
     closePriceDetails();
-    const search = $("query").value.trim();
+    const input = $("query");
+    $("clear-query").hidden = !input.value;
+    const search = input.value.trim();
     const query = searchText(search);
     const carousel = $("stock-list");
     const filters = $("stock-filters");
@@ -873,6 +875,12 @@ for (const id of ["query", ...filterIds]) {
         renderStock();
     });
 }
+$("clear-query").addEventListener("click", () => {
+    const input = $("query");
+    input.value = "";
+    input.focus();
+    input.dispatchEvent(new Event("input", {bubbles: true}));
+});
 $("clear-filters").addEventListener("click", () => {
     for (const id of filterIds) $(id).value = "";
     currentPage = 0;

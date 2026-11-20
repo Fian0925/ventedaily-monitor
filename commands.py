@@ -18,6 +18,7 @@ SIZE_ORDER = [
 
 # Label tombol Reply Keyboard bawah layar
 BTN_CARI = "🔍 Cari Stok"
+BTN_DASHBOARD = "📱 Dashboard"
 BTN_BARU = "🆕 Produk Baru"
 BTN_RESTOCK = "🔄 Restock"
 BTN_KATALOG = "📋 Buat Katalog"
@@ -30,7 +31,7 @@ BTN_TRIAL = "🎁 Coba Gratis 5 Hari"
 BTN_TAGIHAN = "📄 Cek Tagihan"
 
 MENU_BUTTON_TEXTS = {
-    BTN_CARI, BTN_BARU, BTN_RESTOCK, BTN_KATALOG, BTN_HITUNG,
+    BTN_CARI, BTN_DASHBOARD, BTN_BARU, BTN_RESTOCK, BTN_KATALOG, BTN_HITUNG,
     BTN_LAPORAN, BTN_PROFIL, BTN_LANGGANAN, BTN_PAKET, BTN_TRIAL, BTN_TAGIHAN
 }
 
@@ -39,7 +40,8 @@ def get_main_keyboard(is_active=True):
     """Reply Keyboard permanen di bawah layar agar user awam tidak perlu hafal perintah."""
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
     if is_active:
-        kb.row(types.KeyboardButton(BTN_CARI), types.KeyboardButton(BTN_BARU), types.KeyboardButton(BTN_RESTOCK))
+        kb.row(types.KeyboardButton(BTN_DASHBOARD), types.KeyboardButton(BTN_CARI))
+        kb.row(types.KeyboardButton(BTN_BARU), types.KeyboardButton(BTN_RESTOCK))
         kb.row(types.KeyboardButton(BTN_KATALOG), types.KeyboardButton(BTN_HITUNG), types.KeyboardButton(BTN_LAPORAN))
         kb.row(types.KeyboardButton(BTN_PROFIL), types.KeyboardButton(BTN_LANGGANAN))
     else:
@@ -920,6 +922,7 @@ def register_handlers(bot):
                 "Langsung ketik <b>nama produk</b> di chat tanpa garis miring!\n"
                 "Contoh: ketik <code>sasmita</code> atau <code>abimaya</code>\n\n"
                 "📦 <b>STOK & KATALOG:</b>\n"
+                "• /dashboard — Buka Mini App dari chat pribadi\n"
                 "• /cari <i>[nama]</i> — Cek stok per warna & ukuran\n"
                 "• /katalog <i>[nama]</i> — Buat teks katalog siap kirim ke WA pembeli\n"
                 "• /baru & /restock — Daftar produk baru & restock\n\n"
@@ -1799,6 +1802,11 @@ def register_handlers(bot):
 
         if txt == BTN_PROFIL:
             handle_profil(message)
+            return
+
+        if txt == BTN_DASHBOARD:
+            from mini_app import open_dashboard
+            open_dashboard(bot, message)
             return
 
         # Tombol fitur utama membutuhkan langganan aktif

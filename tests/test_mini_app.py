@@ -11,6 +11,7 @@ from urllib.parse import urlencode
 
 import requests
 from flask import Flask
+from telebot import TeleBot, types
 
 import config
 import database
@@ -292,6 +293,40 @@ class MiniAppTests(unittest.TestCase):
                 keyboard.to_dict()["inline_keyboard"][0][0]["web_app"]["url"],
                 "https://example.com/mini/",
             )
+
+    def test_dashboard_quick_button_opens_the_private_mini_app(self):
+        bot = TeleBot("123:offline-test", threaded=False)
+        mini_app.register_handlers(bot)
+        mini_app.commands.register_handlers(bot)
+
+        def message(text, chat_type="private"):
+            return types.Message.de_json({
+                "message_id": 1,
+                "date": int(time.time()),
+                "chat": {"id": 42, "type": chat_type},
+                "from": {"id": 42, "first_name": "Ayu", "is_bot": False},
+                "text": text,
+            })
+
+        shortcut = mini_app.commands.BTN_DASHBOARD
+        with (
+            patch.object(config, "MINI_APP_URL", "https://example.com/mini/"),
+            patch.object(database, "get_user_settings", return_value={"role": "admin"}),
+            patch.object(database, "call_rpc", return_value=[]) as rpc,
+            patch.object(bot, "reply_to") as reply,
+        ):
+            bot.process_new_messages([message("/start")])
+            keyboard = json.loads(reply.call_args.kwargs["reply_markup"].to_json())["keyboard"]
+            self.assertEqual(keyboard[0][0]["text"], shortcut)
+
+            bot.process_new_messages([message(shortcut)])
+            button = reply.call_args.kwargs["reply_markup"].to_dict()["inline_keyboard"][0][0]
+            self.assertEqual(button, {"text": "Buka Dashboard", "web_app": {"url": "https://example.com/mini/"}})
+            rpc.assert_called_once_with("get_mini_watchlist", {"p_chat_id": "42"})
+
+            bot.process_new_messages([message(shortcut, "group")])
+            self.assertIn("chat pribadi", reply.call_args.args[1])
+            rpc.assert_called_once()
 
     def test_due_alerts_are_acknowledged_after_sending(self):
         pending = {"chat_id": "42", "event_id": 7, "product_name": "Produk Navy SIZE L"}
