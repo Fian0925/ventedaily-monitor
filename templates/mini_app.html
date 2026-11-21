@@ -9,9 +9,9 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='mini-app/dashboard.css', v=14) }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='mini-app/dashboard.css', v=15) }}">
     <script src="https://telegram.org/js/telegram-web-app.js?59" defer></script>
-    <script src="{{ url_for('static', filename='mini-app/dashboard.js', v=14) }}" defer></script>
+    <script src="{{ url_for('static', filename='mini-app/dashboard.js', v=15) }}" defer></script>
 </head>
 <body>
     <header class="app-nav">
@@ -129,15 +129,44 @@
 
         <section id="catalog" class="view" aria-labelledby="catalog-title" hidden>
             <div class="view-header">
-                <div><h1 id="catalog-title">Katalog</h1><p>Susun daftar produk untuk dikirim ke WhatsApp.</p></div>
-                <button id="make-catalog" class="button primary" type="button" disabled>Buat teks</button>
+                <h1 id="catalog-title">Katalog</h1>
             </div>
-            <div class="list" id="catalog-list"></div>
-            <div id="catalog-preview" class="catalog-preview" hidden>
-                <label for="catalog-text">Teks untuk WhatsApp</label>
-                <p id="catalog-note" class="catalog-note" hidden></p>
-                <textarea id="catalog-text" readonly rows="9"></textarea>
-                <button id="copy" type="button" class="button primary">Salin teks</button>
+            <div class="catalog-tools" role="group" aria-label="Alat katalog">
+                <button id="catalog-tool" class="button secondary" type="button" aria-pressed="true" aria-controls="catalog-builder">Buat Katalog</button>
+                <button id="order-tool" class="button secondary" type="button" aria-pressed="false" aria-controls="order-panel">Cek Pesanan</button>
+            </div>
+            <div id="catalog-builder">
+                <div class="catalog-toolbar">
+                    <p>Susun daftar produk untuk dikirim ke WhatsApp.</p>
+                    <button id="make-catalog" class="button primary" type="button" disabled>Buat teks</button>
+                </div>
+                <div class="list" id="catalog-list"></div>
+                <div id="catalog-preview" class="catalog-preview" hidden>
+                    <label for="catalog-text">Teks untuk WhatsApp</label>
+                    <p id="catalog-note" class="catalog-note" hidden></p>
+                    <textarea id="catalog-text" readonly rows="9"></textarea>
+                    <button id="copy" type="button" class="button primary">Salin teks</button>
+                </div>
+            </div>
+            <div id="order-panel" hidden>
+                <form id="order-form" class="order-panel">
+                    <label for="order-message">Chat pembeli</label>
+                    <textarea id="order-message" rows="3" maxlength="3000" required placeholder="Sasmita Dad Navy L 1&#10;Sasmita Mom Choco M 2" aria-describedby="order-hint"></textarea>
+                    <p id="order-hint" class="order-note">Pisahkan item dengan baris baru atau koma. Cantumkan nama, warna, ukuran, dan jumlah.</p>
+                    <button id="check-order" class="button primary" type="submit">Periksa pesanan</button>
+                    <p id="order-status" class="order-note" role="status" hidden></p>
+                </form>
+                <div id="order-results" class="order-results" hidden>
+                    <div id="order-lines" class="list" aria-label="Item pesanan"></div>
+                    <section class="order-panel" aria-labelledby="order-reply-title">
+                        <h2 id="order-reply-title">Balasan WhatsApp</h2>
+                        <div class="order-total"><span id="order-total-label"></span><strong id="order-total"></strong></div>
+                        <p id="order-review" class="order-note" role="status"></p>
+                        <label class="field" for="order-reply">Pratinjau balasan</label>
+                        <textarea id="order-reply" readonly rows="6"></textarea>
+                        <button id="copy-order" class="button primary" type="button" disabled>Salin balasan</button>
+                    </section>
+                </div>
             </div>
         </section>
         <section id="pricing" class="view" aria-labelledby="pricing-title" hidden>

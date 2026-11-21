@@ -4,7 +4,7 @@ import json
 import re
 import time
 from decimal import Decimal
-from urllib.parse import parse_qsl, urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit
 
 import requests
 from flask import Blueprint, g, render_template, request
@@ -70,7 +70,7 @@ def register_handlers(bot):
         open_dashboard(bot, message)
 
 
-def open_dashboard(bot, message):
+def open_dashboard(bot, message, *, check_order=False):
     url = dashboard_url()
     if not url:
         bot.reply_to(message, "Dashboard belum dikonfigurasi.")
@@ -83,10 +83,17 @@ def open_dashboard(bot, message):
             print(f"Mini App readiness check failed: {exc}")
             bot.reply_to(message, "Dashboard belum siap. Silakan coba lagi nanti.")
             return
-        keyboard = types.InlineKeyboardMarkup().add(
-            types.InlineKeyboardButton("Buka Dashboard", web_app=types.WebAppInfo(url))
-        )
-        bot.reply_to(message, "Cari stok, pantau varian, buat katalog, dan hitung harga jual di dashboard.", reply_markup=keyboard)
+        label = "Buka Dashboard"
+        description = "Cari stok, pantau varian, buat katalog, dan hitung harga jual di dashboard."
+        if check_order:
+            parts = urlsplit(url)
+            params = dict(parse_qsl(parts.query, keep_blank_values=True))
+            params["view"] = "cek-pesanan"
+            url = parts._replace(query=urlencode(params)).geturl()
+            label = "Buka Cek Pesanan"
+            description = "Tempel chat pembeli untuk cek stok dan harga beberapa varian sekaligus."
+        keyboard = types.InlineKeyboardMarkup().add(types.InlineKeyboardButton(label, web_app=types.WebAppInfo(url)))
+        bot.reply_to(message, description, reply_markup=keyboard)
 
 
 @mini_app.get("/")

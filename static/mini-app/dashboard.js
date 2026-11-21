@@ -33,6 +33,9 @@ let stockLoad = 0;
 let pricingIsCurrent = false;
 let stockPricing;
 let priceQuotes = {};
+let orderRows = [];
+const orderLineLimit = 25;
+const orderQuantityLimit = 999;
 
 const examples = [
     ["Sasmita", "Family", "Navy", "L", "Aman", "Rp 149.000"],
@@ -680,7 +683,7 @@ function showPriceGuide(pricing) {
     $("price-settings-line").textContent = message;
 }
 
-async function load({resetPage = true} = {}) {
+async function load({resetPage = true, keepCatalogPreview = false} = {}) {
     const request = ++stockLoad;
     notice("");
     $("refresh").disabled = true;
@@ -695,7 +698,11 @@ async function load({resetPage = true} = {}) {
         stockPricing = data.pricing;
         priceQuotes = data.price_quotes || {};
         showPriceGuide(stockPricing);
-        $("catalog-preview").hidden = true;
+        if (!keepCatalogPreview) $("catalog-preview").hidden = true;
+        if (orderRows.length) {
+            clearOrderResults();
+            orderStatus("Stok atau setelan harga diperbarui. Periksa ulang pesanan.");
+        }
         const validSelections = new Set(products.filter(available).map(({id}) => id));
         for (const id of selection) {
             if (!validSelections.has(id)) selection.delete(id);
@@ -744,14 +751,261 @@ async function makeCatalog() {
 }
 
 async function copyCatalog() {
-    const text = $("catalog-text");
+    await copyText($("catalog-text"), "Teks katalog disalin.");
+}
+
+async function copyText(text, message) {
     try {
         await navigator.clipboard.writeText(text.value);
-        feedback("Teks katalog disalin.");
+        feedback(message);
     } catch {
         text.focus();
         text.select();
         feedback("Teks dipilih. Salin dari menu perangkatmu.");
+    }
+}
+
+function chooseCatalogTool(order) {
+    $("catalog-tool").setAttribute("aria-pressed", String(!order));
+    $("order-tool").setAttribute("aria-pressed", String(order));
+    $("catalog-builder").hidden = order;
+    $("order-panel").hidden = !order;
+}
+
+function parseOrderMessage(message) {
+    const exportedHeader = /^(?:\[[^\]\n]*\d{1,2}[:.]\d{2}[^\]\n]*\]\s*|\d{1,2}\/\d{1,2}\/\d{2,4}[, ]+\d{1,2}[:.]\d{2}[^-\n]*-\s*)[^:\n]{1,65}:\s*/u;
+    const metadata = /^(?:alamat|ongkir|catatan|penerima|nama(?: penerima)?|no\.?\s*(?:hp|wa)|telepon)\s*:/iu;
+    const greeting = /^(?:(?:halo|hai|permisi|kak|kakak|saya|aku|mau|pesan|order|tolong)(?:\s*:\s*|\s+|$))+/iu;
+    const units = "(?:pcs?|buah|potong|set|biji)";
+    const prefixAmount = new RegExp(`^(\\d+)\\s*(?:x\\s+|×\\s*|${units}\\s+)`, "iu");
+    const suffixAmount = new RegExp(`(?:(?:\\s+(?:x|jumlah|qty|jml)\\s*:?|\\s*×)\\s*(\\d+)|\\s+(\\d+)\\s*${units})$`, "iu");
+    const afterSize = /\b(?:xxs|xs|s|m|l|xl|xxl|xxxl|all size|free size)\b\s+(\d+)$/iu;
+    const rows = [];
+    for (const incoming of message.split(/\r?\n/u)) {
+        const text = incoming.trim().replace(exportedHeader, "");
+        if (metadata.test(text)) continue;
+        const items = text.replace(/(\d(?:\s+(?:pcs?|buah|potong|set|biji))?)\s+dan\s+/giu, "$1;");
+        for (const item of items.split(/;|,(?!\d)/u)) {
+            let query = item.trim()
+                .replace(/^(?:[•*–-]\s*|\d+[.)]\s+)/u, "")
+                .replace(greeting, "")
+                .replace(/\s+(?:(?:ya+|dong)(?:\s+kak)?|kak|makasih|terima kasih)[.!?]*$/iu, "")
+                .replace(/[.!?]+$/u, "").trim();
+            if (!searchText(query) || /^(?:makasih|terima kasih)$/iu.test(query)) continue;
+            const prefix = query.match(prefixAmount);
+            if (prefix) query = query.slice(prefix[0].length).trim();
+            const suffix = query.match(suffixAmount);
+            const bare = suffix ? null : query.match(afterSize);
+            if (suffix) query = query.slice(0, suffix.index).trim();
+            if (bare) query = query.slice(0, -bare[1].length).trim();
+            const trailing = suffix ? suffix[1] || suffix[2] : bare?.[1];
+            const quantity = prefix && trailing && Number(prefix[1]) !== Number(trailing)
+                ? "" : Number(trailing || prefix?.[1] || 1);
+            query = query.replace(/\b((?:all|free)\s+size)\b|\b(?:warna|ukuran|size)\b\s*:?\s*/giu,
+                (_match, size) => size || "").trim();
+            if (query) rows.push({query, quantity, selectedId: ""});
+        }
+    }
+    return rows;
+}
+
+function orderMatches(text) {
+    const query = searchText(text);
+    if (!query) return {candidates: [], selectedId: ""};
+    const terms = query.split(" ");
+    const exactTerms = new Set(terms);
+    const matches = [];
+    for (const product of products) {
+        const rank = searchRank(product, query, terms);
+        if (rank < 0) continue;
+        const name = searchText(product.name).split(" ");
+        const sku = [...name, ...searchText(`${product.color || ""} ${product.size}`).split(" ")];
+        const words = new Set([...sku, ...searchText(product.category).split(" ")]);
+        const exact = terms.every((term) => words.has(term));
+        const full = exact && sku.every((term) => exactTerms.has(term));
+        matches.push({product, rank, exact, full, named: name.some((word) => exactTerms.has(word))});
+    }
+    const full = matches.filter((match) => match.full);
+    const exact = matches.filter((match) => match.exact);
+    const candidates = full.length ? full : exact.length ? exact : matches;
+    candidates.sort((a, b) => b.rank - a.rank || a.product.id.localeCompare(b.product.id, "id", {numeric: true}));
+    return {
+        candidates: candidates.map(({product}) => product),
+        selectedId: candidates.length === 1 && candidates[0].exact && candidates[0].named ? candidates[0].product.id : "",
+    };
+}
+
+function orderStatus(message) {
+    $("order-status").textContent = message;
+    $("order-status").hidden = !message;
+}
+
+function clearOrderResults() {
+    orderRows = [];
+    $("order-results").hidden = true;
+    $("order-lines").replaceChildren();
+    $("order-reply").value = "";
+    $("copy-order").disabled = true;
+}
+
+function orderVariantName(product) {
+    return [product.name, product.color, formatSize(product.size)].filter(Boolean).join(" · ");
+}
+
+function validOrderQuantity(quantity) {
+    return Number.isInteger(quantity) && quantity >= 1 && quantity <= orderQuantityLimit;
+}
+
+function orderRow(row) {
+    const article = node("article", "order-line");
+    const top = node("div", "order-row-head");
+    const item = node("input");
+    item.type = "text";
+    item.value = row.query;
+    item.maxLength = 180;
+    const qty = node("input");
+    qty.type = "number";
+    qty.min = 1;
+    qty.max = orderQuantityLimit;
+    qty.step = 1;
+    qty.inputMode = "numeric";
+    qty.value = row.quantity;
+    qty.setAttribute("aria-invalid", String(!validOrderQuantity(row.quantity)));
+    const remove = action("Hapus", () => {
+        orderRows = orderRows.filter((item) => item !== row);
+        article.remove();
+        renderOrderReply();
+    });
+    const itemField = node("label", "field", "Cari varian");
+    itemField.append(item);
+    const qtyField = node("label", "field", "Jumlah");
+    qtyField.append(qty);
+    top.append(itemField, qtyField, remove);
+
+    const pick = node("select");
+    const pickField = node("label", "field", "Varian produk");
+    pickField.append(pick);
+    const details = node("div", "order-variant");
+    const update = () => {
+        const selected = row.candidates.find((product) => product.id === row.selectedId);
+        row.product = selected;
+        details.replaceChildren();
+        if (selected) {
+            const price = orderUnitPrice(selected);
+            details.append(stockPill(selected), node("span", "", price === null
+                ? "Harga jual belum tersedia" : `${rupiah.format(price)} / pcs`));
+        } else {
+            const message = row.candidates.length > 40 ? "Persempit pencarian dengan nama, warna, atau ukuran."
+                : row.candidates.length ? "Pilih varian yang dimaksud." : "Varian belum ditemukan. Ubah kata pencarian.";
+            details.append(node("span", "", message));
+        }
+        renderOrderReply();
+    };
+    const find = () => {
+        row.query = item.value;
+        Object.assign(row, orderMatches(row.query));
+        const options = row.candidates.slice(0, 40).map((product) =>
+            new Option(`${orderVariantName(product)} · ${stockInfo(product.stock)[0]}`, product.id));
+        pick.replaceChildren(new Option(options.length ? "Pilih varian" : "Tidak ada hasil", ""), ...options);
+        pick.value = row.selectedId;
+        pick.disabled = !options.length;
+        update();
+    };
+    item.addEventListener("change", find);
+    item.addEventListener("keydown", (event) => { if (event.key === "Enter") find(); });
+    qty.addEventListener("input", () => {
+        row.quantity = qty.valueAsNumber;
+        qty.setAttribute("aria-invalid", String(!validOrderQuantity(row.quantity)));
+        renderOrderReply();
+    });
+    pick.addEventListener("change", () => {
+        row.selectedId = pick.value;
+        update();
+    });
+    article.append(top, pickField, details);
+    find();
+    return article;
+}
+
+function orderUnitPrice(product) {
+    const price = demo ? Number(product.price.replace(/\D/g, "")) : product.selling_price;
+    return Number.isSafeInteger(price) && price > 0 ? price : null;
+}
+
+function renderOrderReply() {
+    const valid = (row) => row.product && validOrderQuantity(row.quantity);
+    const totals = new Map();
+    for (const row of orderRows.filter(valid)) {
+        totals.set(row.selectedId, (totals.get(row.selectedId) || 0) + row.quantity);
+    }
+    let subtotal = 0n;
+    let unresolved = 0;
+    let partial = false;
+    let quantityCheck = false;
+    const replies = [];
+    for (const row of orderRows) {
+        if (!valid(row)) {
+            unresolved++;
+            continue;
+        }
+        const {product, quantity} = row;
+        const label = `• ${orderVariantName(product)} × ${quantity}`;
+        const price = orderUnitPrice(product);
+        const inStock = available(product);
+        const check = inStock && totals.get(product.id) > 1;
+        quantityCheck ||= check;
+        if (!inStock || price === null) {
+            partial = true;
+            const status = inStock ? "harga perlu dicek" : product.stock.toLowerCase() === "habis" ? "habis" : "stok perlu dicek";
+            replies.push(`${label} — ${status}`);
+        } else {
+            const amount = BigInt(price) * BigInt(quantity);
+            subtotal += amount;
+            replies.push(`${label} — ${rupiah.format(amount)}${check ? " (jumlah perlu dicek)" : ""}`);
+        }
+    }
+    const label = partial || unresolved ? "Subtotal item terhitung" : "Estimasi total produk";
+    $("order-total-label").textContent = label;
+    $("order-total").textContent = subtotal ? rupiah.format(subtotal) : "—";
+    const notes = [];
+    if (unresolved) notes.push(`Periksa varian atau jumlah untuk ${unresolved} item.`);
+    if (partial) notes.push("Item tanpa stok atau harga pasti tidak masuk subtotal.");
+    if (quantityCheck) notes.push("Stok Vente berupa status. Jumlah di atas satu perlu dikonfirmasi.");
+    if (!orderRows.length) notes.push("Belum ada item. Tempel chat untuk mulai.");
+    $("order-review").textContent = notes.join(" ");
+    const lines = [demo ? "Contoh balasan dari data demo." : "Hai Kak, ini hasil cek pesanannya.", "", ...replies];
+    if (subtotal) lines.push("", `${label} ${rupiah.format(subtotal)}. Harga belum termasuk ongkir.`);
+    $("order-reply").value = replies.length ? lines.join("\n") : "";
+    $("copy-order").disabled = !replies.length || unresolved > 0;
+}
+
+async function checkOrder(event) {
+    event.preventDefault();
+    const input = $("order-message");
+    const source = input.value;
+    const parsed = parseOrderMessage(source);
+    clearOrderResults();
+    if (!parsed.length || parsed.length > orderLineLimit) {
+        orderStatus(parsed.length ? `Periksa maksimal ${orderLineLimit} item sekali jalan.`
+            : "Tempel chat yang berisi nama produk untuk diperiksa.");
+        return;
+    }
+    $("check-order").disabled = true;
+    orderStatus("Memeriksa stok dan harga jual…");
+    try {
+        if (!demo && !await load({resetPage: false, keepCatalogPreview: true})) {
+            if (input.value === source) orderStatus("Stok belum berhasil dimuat. Coba periksa lagi.");
+            return;
+        }
+        if (input.value !== source) return;
+        orderRows = parsed;
+        $("order-lines").replaceChildren(...orderRows.map(orderRow));
+        $("order-results").hidden = false;
+        const stockTime = demo ? "Data contoh." : $("stock-time").textContent;
+        orderStatus(`${orderRows.length} item diperiksa. ${stockTime}`);
+        renderOrderReply();
+    } finally {
+        $("check-order").disabled = false;
     }
 }
 
@@ -830,6 +1084,10 @@ async function submitPricing(save) {
             setPricingValues(settings);
             $("catalog-preview").hidden = true;
             pricingIsCurrent = false;
+            if (orderRows.length) {
+                clearOrderResults();
+                orderStatus("Setelan harga diperbarui. Periksa ulang pesanan.");
+            }
             showPriceGuide(null);
             renderLists();
             pricingStatus("Setelan tersimpan. Memperbarui harga produk…");
@@ -941,6 +1199,14 @@ $("show-price-guide").addEventListener("click", (event) => {
 });
 $("make-catalog").addEventListener("click", makeCatalog);
 $("copy").addEventListener("click", copyCatalog);
+$("catalog-tool").addEventListener("click", () => chooseCatalogTool(false));
+$("order-tool").addEventListener("click", () => chooseCatalogTool(true));
+$("order-form").addEventListener("submit", checkOrder);
+$("order-message").addEventListener("input", () => {
+    clearOrderResults();
+    orderStatus("");
+});
+$("copy-order").addEventListener("click", () => copyText($("order-reply"), "Balasan pesanan disalin."));
 $("pricing-retry").addEventListener("click", loadPricing);
 $("pricing-marketplace").addEventListener("change", (event) => {
     $("pricing-fee").value = String(marketplaces[event.target.value].fee).replace(".", ",");
@@ -967,5 +1233,9 @@ if (demo) {
     $("refresh").hidden = false;
     telegram.ready();
     telegram.expand();
+}
+if (new URLSearchParams(window.location.search).get("view") === "cek-pesanan") {
+    changeView("catalog");
+    chooseCatalogTool(true);
 }
 load();

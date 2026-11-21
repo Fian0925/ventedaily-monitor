@@ -309,6 +309,7 @@ class MiniAppTests(unittest.TestCase):
             })
 
         shortcut = mini_app.commands.BTN_DASHBOARD
+        order_shortcut = mini_app.commands.BTN_CEK_PESANAN
         with (
             patch.object(config, "MINI_APP_URL", "https://example.com/mini/"),
             patch.object(database, "get_user_settings", return_value={"role": "admin"}),
@@ -318,6 +319,7 @@ class MiniAppTests(unittest.TestCase):
             bot.process_new_messages([message("/start")])
             keyboard = json.loads(reply.call_args.kwargs["reply_markup"].to_json())["keyboard"]
             self.assertEqual(keyboard[0][0]["text"], shortcut)
+            self.assertEqual(keyboard[0][1]["text"], order_shortcut)
 
             bot.process_new_messages([message(shortcut)])
             button = reply.call_args.kwargs["reply_markup"].to_dict()["inline_keyboard"][0][0]
@@ -327,6 +329,14 @@ class MiniAppTests(unittest.TestCase):
             bot.process_new_messages([message(shortcut, "group")])
             self.assertIn("chat pribadi", reply.call_args.args[1])
             rpc.assert_called_once()
+
+            with patch.object(config, "MINI_APP_URL", "https://example.com/mini/?source=bot"):
+                bot.process_new_messages([message(order_shortcut)])
+            button = reply.call_args.kwargs["reply_markup"].to_dict()["inline_keyboard"][0][0]
+            self.assertEqual(button, {
+                "text": "Buka Cek Pesanan",
+                "web_app": {"url": "https://example.com/mini/?source=bot&view=cek-pesanan"},
+            })
 
     def test_due_alerts_are_acknowledged_after_sending(self):
         pending = {"chat_id": "42", "event_id": 7, "product_name": "Produk Navy SIZE L"}
